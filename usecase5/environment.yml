@@ -1,8 +1,0 @@
-name: showmehow
-channels:
-  - bioconda
-  - conda-forge
-dependencies:
-  - curl
-  - nextflow=24.10.6
-

@@ -1,62 +1,146 @@
-# The I in FAIR: Solutions for HeterOgeneous Workflows in Model-based Engineering applications – SHOWME.how
-This repository contains data used in the contribution to the NFDI4ING Community Meeting - "Innovating Software Solutions in Engineering Research"
+# Bayesian Parameter Calibration in Blood Hemolysis Modeling
 
-## Authors
-- Alan Correa (1)
-- V Mithlesh Kumar (1)
-- Anil Yildiz (1)
-- Julia Kowalski (1)
+This computational study calibrates the parameters of a computational
+hemolysis model against experimental data. Hemolysis models predict the fraction
+of red blood cells damaged when blood is subjected to mechanical load, and are
+used to assess blood-handling medical devices such as ventricular assist devices.
+Such models expose empirical coefficients that must be identified from
+experiments before the model can be applied predictively.
 
-## Contributors
-- Dipankul Bhatacharya (1)
-- Oliver Ahrend (1)
+Here the coefficients are inferred within a Bayesian framework: rather than a
+single best fit, the calibration returns posterior distributions over the
+parameters, so that experimental scatter and model uncertainty are carried
+through into the estimates. Inference is performed with Markov Chain Monte Carlo,
+and the same setup can be applied to individual datasets or swept across blood
+sources and competing model formulations.
 
-(1) - Methods for Model-based Development in Computational Engineerng, RWTH Aachen
+This computational study was built with the
+[SHOWME.how](https://mbd-rwth.github.io/showmehow/) approach.
 
+<p align="left">
+  <img src="assets/showmehow_logo.svg" alt="SHOWME.how" height="64">
+  &nbsp;&nbsp;&nbsp;
+  <img src="assets/logo_mbd_rgb.png" alt="MBD – RWTH Aachen University" height="64">
+</p>
 
-## Abstract:
+## Components of the study
 
-Model-based development, design, decision support, and diagnostics in engineering applications often require complex workflows that involve heterogeneous computational models, programming languages, operating systems, and computing infrastructures. The diversity of workflow components presents significant challenges in interoperability, limiting the usability and subsequent reusability of the generated digital assets, including software and data.
+### Computational units
 
-To address these challenges, we present an approach to orchestrate various computational workflow components, enhancing their combined value through synergy. Additionally, it facilitates the seamless integration of state-of-the-art research methodologies into application-driven engineering tasks. We call this method SHOWME.how. It is enabled by technologies like package managers (Conda, Mamba), containerization (Apptainer, Docker), data exchange protocols (HTTP, Filesystem), and workflow managers (Nextflow).
+- **Forward model** predicts a hemolysis index from the flow conditions
+  (control variables) and the model parameters. It is implemented in both
+  **Python** and **Julia**, selectable at runtime via `model.use_julia`.
+- **MCMC calibration** infers the posterior over the parameters with the
+  affine-invariant ensemble sampler (Goodman & Weare) as implemented in
+  [`emcee`](https://emcee.readthedocs.io/), using a Gaussian likelihood, an
+  optionally calibrated noise term, and configurable priors. Inference results
+  are exported as NetCDF via [ArviZ](https://python.arviz.org/).
+- **Report** compiles the calibration results (including the sampler traces) into
+  a generated report; **diagnostics** compute convergence statistics.
 
-Using SHOWME.how, we develop blueprints to perform high-throughput tasks for applications in heat transfer and free-surface flow, that use different software for computational models (OpenFOAM, FEniCS) and packages in various languages (Python, Julia, R). Our approach enables the reuse of existing research software in its native environment, eliminating the need to build wrappers, develop language-bridging interfaces, or rely on suboptimal implementations. It also streamlines the prototyping of complex computational workflows for engineering studies,  facilitating their creation and reuse with minimal effort.
+### Data
 
-The demonstrated blueprints can be readily adapted to develop highly interoperable and reusable digital assets and software frameworks, ultimately increasing their longevity and value.
+- **Blood hemolysis measurements** for different species (human, bovine, ovine,
+  porcine), fetched from a remote data repository and preprocessed into a common
+  CSV format.
+- **Deterministic calibration data** (`deterministic_calibration/`): reference
+  coefficient sets from the literature, in JSON.
 
-## Keywords
-Computational Workflows, Model-based Engineering, High-Throughput Computing, Uncertainty Quantification
+### Human collaborators
 
+- **Nico Dirkes** | CATS, RWTH Aachen | blood hemolysis modeling specialist
+- **V. Mithlesh Kumar** | MBD, RWTH Aachen | uncertainty quantification
+- **Alan Correa** | MBD, RWTH Aachen | research software engineering
 
+## Installation
 
+1. **Conda / Mamba / Micromamba**: a package manager for the unit environments
+   ([Conda](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html) /
+   [Mamba](https://github.com/conda-forge/miniforge#install) /
+   [Micromamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html#automatic-install)).
+2. Create and activate the project environment (this also installs Nextflow):
+   ```
+   conda env create -f environment.yml
+   conda activate showmehow
+   ```
+3. A container runtime for the **Julia** forward model:
+   [Docker](https://docs.docker.com/get-docker/) locally, or
+   [Apptainer](https://apptainer.org/docs/admin/latest/installation.html#installing-apptainer)
+   on HPC.
 
 ## Usage
 
-### Requirements
+1. **Single calibration** runs one configuration:
+   ```
+   nextflow run main.nf --config_file params.yml
+   ```
+   `params.yml` sets the `species`, the model, whether to use the
+   Julia forward model (`model.use_julia`), and the calibration settings and
+   priors. Ready-made configs for each model variant are provided as `params-*.yml`.
 
-1. Conda or Mamba or Micromamba
-    - Conda is a package manager that allows installing and managing software packages and their dependencies. It is widely used in the scientific computing community.
-    - Mamba/Micromamba is a fast, drop-in replacement for Conda that uses parallel downloading and dependency resolution to speed up package installation.
-    - To install Conda, follow the instructions [here](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html).
-    - To install Mamba, follow the instructions [here](https://github.com/conda-forge/miniforge#install).
-    - To install Micromamba, follow the instructions [here](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html#automatic-install).
-2. Nextflow 
-    - Nextflow is a workflow management system that allows writing and executing   data-driven workflows. It is designed to be portable and can run on various platforms, including local machines, clusters, and cloud environments. 
-    - For installation, follow the instructions [here](https://www.nextflow.io/docs/latest/getstarted.html#installation) OR
-    - use Conda/Mamba/Micromamba with the following commands:
-  
-        Using conda:  
-        ```
-        conda install conda-forge::curl bioconda::nextflow=24.10.5
-        ```
-        Using mamba:  
-        ```
-        mamba install conda-forge::curl bioconda::nextflow=24.10.5
-        ```
-        Using micromamba:  
-        ```
-        micromamba install conda-forge::curl bioconda::nextflow=24.10.5
-        ```
-3. Apptainer
-    - Apptainer is a containerization tool that allows creating and running containers. It is similar to Docker but is designed to be more lightweight and portable. Apptainer containers can be run on any system including HPCs without requiring root privileges.
-    - For installation, follow the instructions [here](https://apptainer.org/docs/admin/latest/installation.html#installing-apptainer) 
+2. **Orchestrated experiments** run a sweep over many configurations. Define the
+   combinations in `experiments.yml`, then:
+   ```
+   nextflow run experiments.nf --config_file experiments.yml
+   ```
+   Every combination of the `sweep` dimensions (species, model, prior
+   configuration, ...) produces one calibration, sharing the common calibration
+   and model-server settings. Nextflow limits concurrency to the available
+   resources and skips runs that have already completed on a rerun (`-resume`).
+
+   Available options:
+   - **Species:** `human`, `bovine`, `ovine`, `porcine`
+   - **Models:** `IH_powerLaw_stressBased`, `IH_powerLaw_strainBased`,
+     `IH_poreFormation_stressBased`, `IH_poreFormation_strainBased`
+
+   More options for the orchestrated version are on the way.
+
+## Repository structure
+
+Main components:
+
+| Path | What it is |
+| --- | --- |
+| `main.nf` | Nextflow workflow for a single calibration |
+| `experiments.nf` | Nextflow orchestrator for a sweep of experiments |
+| `params.yml`, `params-*.yml` | Configs for single runs (one per model variant) |
+| `experiments.yml` | Sweep configuration |
+| `model/` | **Python** forward model |
+| `model_julia/` | **Julia** forward model (Docker / Apptainer) |
+| `mcmc/` | MCMC calibration client (`emcee`) |
+| `report/`, `diagnostics/` | Generated report and convergence diagnostics |
+
+Supporting units: `pull_data/` (fetch experimental data), `preprocessing/`
+(convert raw data to CSV), `experiments/` (generate the sweep), `deterministic_calibration/`
+(literature reference coefficients).
+
+<!-- TODO: add an example output figure (e.g. posterior distributions / trace plot from the generated report). -->
+
+## Roadmap
+
+- [ ] Add Conda lock files for reproducible environments.
+- [ ] Add CI automation.
+- [ ] Add Nextflow profiles to switch automatically between local (Docker) and
+      HPC (Apptainer + cluster executor) configurations.
+
+## Contact
+
+Alan Correa | MBD, RWTH Aachen ([@thealanjason](https://github.com/thealanjason)).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## How to cite
+
+<!-- TODO: add citation for this computational study. -->
+
+## References
+
+- Dirkes, N., & Behr, M. (2026). *A practical computational hemolysis model
+  incorporating biophysical properties of the red blood cell membrane.* arXiv.
+  https://doi.org/10.48550/arXiv.2601.19994
+- Blum, C., Steinseifer, U., & Neidlin, M. (2025). *Toward uncertainty-aware
+  hemolysis modeling: A universal approach to address experimental variance.*
+  International Journal for Numerical Methods in Biomedical Engineering, 41,
+  e70040. https://doi.org/10.1002/cnm.70040

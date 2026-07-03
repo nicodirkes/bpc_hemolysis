@@ -1,8 +1,0 @@
-[deps]
-CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
-DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
-Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
-JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
-QuasiMonteCarlo = "8a4e6c94-4038-4cdc-81c3-7e6ffdb2a71b"
-StructTypes = "856f2bd8-1eba-4b0a-8007-ebc267875bd4"
-UnsafeArrays = "c4a57d5a-5b31-53a6-b365-19f8c011fbd6"

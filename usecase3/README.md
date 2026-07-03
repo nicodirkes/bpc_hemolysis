@@ -1,3 +1,0 @@
-# Usecase 3: Forward Uncertainty Quantification & Sensitivity Analysis
-
-COMING SOON...
