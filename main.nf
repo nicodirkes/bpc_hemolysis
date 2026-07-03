@@ -270,7 +270,8 @@ process SERVE_MODEL_PY {
 }
 
 process SERVE_MODEL_JL {
-    // container set per profile in nextflow.config; -p only under Docker
+    container 'ghcr.io/nicodirkes/bpc_hemolysis/model_julia:0.1.0'
+    // Docker needs -p to publish the port; Apptainer shares the host network.
     containerOptions {
         workflow.containerEngine == 'docker'
             ? "-p ${umbridge_port+100*(task.attempt-1)}:${umbridge_port+100*(task.attempt-1)}"

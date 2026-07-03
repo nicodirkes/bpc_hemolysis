@@ -15,9 +15,9 @@ RUN apt-get update \
     && mkdir -p /opt/${ENV_NAME} /usr/local/share/.julia /tmp/logs \
     && chmod 0755 /opt/${ENV_NAME} /usr/local/share/.julia /tmp/logs
 
-# Copy the Julia project file into the image 
-COPY Project.toml /opt/${ENV_NAME}/Project.toml
+# Copy the Julia project and pinned manifest into the image
+COPY Project.toml Manifest.toml /opt/${ENV_NAME}/
 
 
-# Install the Julia packages defined in Project.toml 
+# Install the exact pinned deps (arch-native artifacts resolved here)
 RUN julia -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'

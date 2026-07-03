@@ -6,8 +6,9 @@ From: julia:1.11
 
 
 %files
-# Copy the Julia Project.toml into the container
+# Copy the Julia project and pinned manifest into the container
 ./Project.toml /opt/{{ ENV_NAME }}/Project.toml
+./Manifest.toml /opt/{{ ENV_NAME }}/Manifest.toml
 
 
 %post

@@ -140,8 +140,8 @@ Supporting units: `pull_data/` (fetch experimental data), `preprocessing/`
 - [ ] Add CI automation.
 - [x] Add Nextflow profiles (`local` / `cluster`) to switch the container engine
       between Docker and Apptainer.
-- [ ] Provide an Apptainer image (`.sif`) for the Julia forward model so the
-      `cluster` profile runs it end to end.
+- [x] Publish the Julia forward model image to GHCR (multi-arch) and consume it
+      from both profiles (Apptainer pulls it via `docker://`).
 
 ## Contact
 
