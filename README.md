@@ -142,9 +142,6 @@ Supporting units: `pull_data/` (fetch experimental data), `preprocessing/`
       between Docker and Apptainer.
 - [ ] Provide an Apptainer image (`.sif`) for the Julia forward model so the
       `cluster` profile runs it end to end.
-- [ ] Add a batch-scheduler executor (e.g. SLURM) as a further profile, which
-      requires the model server and MCMC client to exchange a hostname rather
-      than assume `localhost`.
 
 ## Contact
 
