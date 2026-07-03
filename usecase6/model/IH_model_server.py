@@ -4,7 +4,6 @@ import pandas as pd
 import os
 import argparse
 from src.IH_model import IH_powerLaw_stressBased, IH_powerLaw_strainBased, IH_poreFormation_stressBased, IH_poreFormation_strainBased
-
 class IH_Model(umbridge.Model):
     
     _data = None  # Class variable to store shared data
@@ -23,6 +22,10 @@ class IH_Model(umbridge.Model):
         elif name == "IH_poreFormation_strainBased":
             self.params = 2
             self.model_func = np.vectorize(IH_poreFormation_strainBased)
+        elif name == "IH_poreFormation_strainBased_analytical":
+            self.params = 2
+            self.model_func = np.vectorize(
+                lambda t, s, h, k: IH_poreFormation_strainBased(t, s, h, k, analytical=True))
         else:
             print("Requested Model is Not Implemented")
             exit(1)
@@ -68,7 +71,6 @@ class IH_Model(umbridge.Model):
         sigma_all = self._data[:, 1]
 
         IH_all = self.model_func(t_exp_all, sigma_all, *parameters)
-        
         return IH_all.reshape(-1, 1)
 
 def parse_arguments():
@@ -79,6 +81,8 @@ def parse_arguments():
                        help='Data file path')
     parser.add_argument('--port', type=int, default=49152,
                        help='Server port')
+    parser.add_argument('--n_workers', type=int, default=1,
+                       help='Number of worker threads for the UMBridge server')
     return parser.parse_args()
 
 def main():
@@ -86,8 +90,8 @@ def main():
     name = args.name
     data_file = args.data
     port = args.port
+    max_workers = args.n_workers
 
-    
     print(f"Starting UMBridge server on port {port}")
     print(f"Data file: {data_file}")
     print(f"Model: {name}")
@@ -100,7 +104,7 @@ def main():
     print(f"Successfully created model: {model.name}")
     
     # Serve the model
-    umbridge.serve_models([model], port)
+    umbridge.serve_models([model], port, max_workers=max_workers)
 
 if __name__ == "__main__":
     main()

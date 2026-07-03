@@ -22,6 +22,9 @@ function get_IH_model(
     elseif name=="IH_poreFormation_strainBased"
         model_func = IH_poreFormation_strainBased_quad
         parameters = 2
+    elseif name=="IH_poreFormation_strainBased_analytical"
+        model_func = IH_poreFormation_strainBased_analytical_binomial
+        parameters = 2
     end
 
     # setup umbridge model

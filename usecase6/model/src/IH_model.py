@@ -153,7 +153,7 @@ def get_input_data(fname):
 
     return np.array([t_exp, sigma_exp]).T
 
-def get_IH_model(model_name, mu, f1, f2, V_RBC, log, analytical):
+def get_IH_model(model_name, mu, f1, log, analytical):
     """
     Returns the appropriate IH model function based on the model name.
     """
@@ -173,19 +173,19 @@ def get_IH_model(model_name, mu, f1, f2, V_RBC, log, analytical):
         def computeIH_poreFormation(x, p):
             assert len(p) == 2, "Parameters should contain exactly two values: [h, k]"
             assert len(x) == 2, "Input x should contain exactly rows: [t_exp, sigma]"
-            return IH_poreFormation_strainBased(*x, *p, log=log, mu=mu, f1=f1, f2=f2, V_RBC=V_RBC, analytical=analytical)
+            return IH_poreFormation_strainBased(*x, *p, log=log, mu=mu, f1=f1, analytical=analytical)
         return computeIH_poreFormation
     elif model_name == 'IH_poreFormation_stressBased':
         def computeIH_poreFormation_stressBased(x, p):
             assert len(p) == 2, "Parameters should contain exactly two values: [h, k]"
             assert len(x) == 2, "Input x should contain exactly rows: [t_exp, sigma]"
-            return IH_poreFormation_stressBased(*x, *p, log=log, mu=mu, f2=f2, V_RBC=V_RBC)
+            return IH_poreFormation_stressBased(*x, *p, log=log, mu=mu)
         return computeIH_poreFormation_stressBased
     else:
         raise ValueError(f"Unknown model name: {model_name}")
 
 def evaluate_model(parameters, fname_controlVars='data.csv', model_name='IH_powerLaw_strainBased', log=False,
-                   mu=0.0035, f1=5.0, f2=4.2298e-4, V_RBC=147.494, analytical=True):
+                   mu=0.0035, f1=5.0, analytical=True):
     """
     Computes IH using the specified model with given parameters.
     Inputs:
@@ -194,13 +194,12 @@ def evaluate_model(parameters, fname_controlVars='data.csv', model_name='IH_powe
     - model_name: name of the model to use ('IH_powerLaw_strainBased', 'IH_powerLaw_stressBased', 'IH_poreFormation')
     - mu: viscosity (default 0.0035), only used for pore formation model
     - f1: parameter for pore formation model and strain-based power law (default 5.0)
-    - f2: parameter only for pore formation model (default 4.2298e-4)
     Returns:
     - log (bool): whether to use logarithmic scaling, leading to log(IH) output
     - A list of computed IH values for each control variable point.
     """
 
-    IH_model = get_IH_model(model_name, mu, f1, f2, V_RBC, log, analytical)
+    IH_model = get_IH_model(model_name, mu, f1, log, analytical)
     input_data = get_input_data(fname_controlVars)
 
     return [ IH_model(x, parameters) for x in input_data ]
@@ -217,8 +216,8 @@ def main():
     fname_data = 'data.csv'
     output_data_stressBased = evaluate_model(parameters, fname_controlVars=fname_data, model_name='IH_powerLaw_stressBased')
     output_data_strainBased = evaluate_model(parameters, fname_controlVars=fname_data, model_name='IH_powerLaw_strainBased', f1=5.0)
-    output_data_pore_strain = evaluate_model(parameters_pore, fname_controlVars=fname_data, model_name='IH_poreFormation_strainBased', mu=0.00424, f1=5.0, f2=4.2298e-4, V_RBC=147.494)
-    output_data_pore_stress = evaluate_model(parameters_pore, fname_controlVars=fname_data, model_name='IH_poreFormation_stressBased', mu=0.00424, f1=5.0, f2=4.2298e-4, V_RBC=147.494)
+    output_data_pore_strain = evaluate_model(parameters_pore, fname_controlVars=fname_data, model_name='IH_poreFormation_strainBased', mu=0.00424, f1=5.0)
+    output_data_pore_stress = evaluate_model(parameters_pore, fname_controlVars=fname_data, model_name='IH_poreFormation_stressBased', mu=0.00424, f1=5.0)
 
     print("Output data (stress-based):", output_data_stressBased)
     print("Output data (strain-based):", output_data_strainBased)

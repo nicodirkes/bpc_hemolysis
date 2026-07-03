@@ -1,0 +1,98 @@
+# Prior attribute values per parameter per distribution type.
+# Add new types alongside existing ones to make them available in configurations.
+prior_library:
+  A:
+    uniform:
+      lower_bound: 1.0e-7
+      upper_bound: 20.0
+  alpha:
+    uniform:
+      lower_bound: 0.5
+      upper_bound: 3.0
+  beta:
+    uniform:
+      lower_bound: 0.01
+      upper_bound: 1.0
+  h:
+    uniform:
+      lower_bound: 1.0e-7
+      upper_bound: 25.0
+  k:
+    uniform:
+      lower_bound: 1.0e-7
+      upper_bound: 3.0
+  sigma:
+    uniform:
+      lower_bound: 1.0e-9
+      upper_bound: 0.5
+
+# Named prior configurations — each maps parameter names to a distribution type.
+# The type must exist in prior_library for each relevant parameter.
+# Model-specific parameters (A/alpha/beta vs h/k) only need to be defined for
+# the models that use them; unused entries are ignored.
+prior_configurations:
+  uniform_all:
+    A: uniform
+    alpha: uniform
+    beta: uniform
+    h: uniform
+    k: uniform
+    sigma: uniform
+  
+
+# Model definitions: parameters and control variables per model
+model_definitions:
+  IH_powerLaw_stressBased:
+    parameters: [A, alpha, beta]
+    control_variables: [shear_stress, exposure_time]
+    use_julia: false
+  IH_powerLaw_strainBased:
+    parameters: [A, alpha, beta]
+    control_variables: [shear_stress, exposure_time]
+    use_julia: false
+  IH_poreFormation_stressBased:
+    parameters: [h, k]
+    control_variables: [shear_stress, exposure_time]
+    use_julia: false
+  IH_poreFormation_strainBased:
+    parameters: [h, k]
+    control_variables: [shear_stress, exposure_time]
+    use_julia: false
+  IH_poreFormation_strainBased_analytical:
+    parameters: [h, k]
+    control_variables: [shear_stress, exposure_time]
+    use_julia: false
+
+# Shared model server settings (applied to all experiments)
+model_server:
+  n_workers: 4 # supported only by python
+
+# Shared calibration settings (applied to all experiments)
+calibration:
+  nwalkers: 100
+  nburn: 3500
+  nsteps: 7000
+  n_workers: 4
+  pool_type: thread # serial | thread | process
+  noise_parameters: [sigma]
+  noise_sigma: 0.05
+  data: [fHb]
+  likelihood: normal
+
+# Sweep dimensions — cartesian product of all lists produces one experiment per combination
+sweep:
+  species:
+    - human
+    - ovine
+    - bovine
+    - porcine
+  models:
+    - IH_powerLaw_stressBased
+    - IH_powerLaw_strainBased
+    - IH_poreFormation_stressBased
+    - IH_poreFormation_strainBased
+    - IH_poreFormation_strainBased_analytical
+  prior_configuration:
+    - uniform_all
+  calibrate_noise:
+    - true

@@ -8,6 +8,11 @@ import argparse
 import os
 import corner
 import arviz as az
+import contextlib
+from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import Pool
+
+POOL_TYPES = ["serial", "thread", "process"]
 
 
 class Prior:
@@ -123,6 +128,9 @@ class LogLikelihood:
         except Exception:
             return -np.inf
 
+        if prediction_mean.dtype == object or not np.isfinite(prediction_mean).all():
+            return -np.inf
+
         if prediction_mean.shape != self.data.shape:
             raise ValueError("shape of model predictions does not match observations")
 
@@ -147,7 +155,22 @@ class LogPosterior:
         self.log_likelihood = log_likelihood
 
     def eval(self, parameters) -> float:
-        return self.log_prior.eval(parameters) + self.log_likelihood.eval(parameters)
+        lp = self.log_prior.eval(parameters)
+        if not np.isfinite(lp):
+            return lp
+        return lp + self.log_likelihood.eval(parameters)
+
+
+@contextlib.contextmanager
+def _build_pool(pool_type: str, n_workers: int):
+    if pool_type == "thread":
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+            yield pool
+    elif pool_type == "process":
+        with Pool(processes=n_workers) as pool:
+            yield pool
+    else:
+        yield None
 
 
 def initialize_walkers(nwalkers: int, prior: Prior) -> np.ndarray:
@@ -159,23 +182,27 @@ def initialize_walkers(nwalkers: int, prior: Prior) -> np.ndarray:
 
     return initial_positions
 
-def perform_mcmc(prior, log_posterior, nwalkers=50, nburn=2500, nsteps=5000):
-    
-    # Initialize Walkers        
+def perform_mcmc(prior, log_posterior, nwalkers=50, nburn=2500, nsteps=5000, n_workers=1, pool_type="serial"):
+    if pool_type not in POOL_TYPES:
+        print(f"pool_type '{pool_type}' not supported. Choose from: {POOL_TYPES}")
+        exit(1)
+
+    # Initialize Walkers
     initial_positions = initialize_walkers(nwalkers, prior)
-    
+
     # Setup Sampler
     ndim = len(prior.distributions)
-    sampler = emcee.EnsembleSampler(nwalkers, ndim, log_posterior)
-    
-    # Run Calibration
-    sampler.run_mcmc(initial_positions, nsteps, progress=True)
+    with _build_pool(pool_type, n_workers) as pool:
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_posterior, pool=pool)
+
+        # Run Calibration
+        sampler.run_mcmc(initial_positions, nsteps, progress=True)
 
     # Extract Results (post burn-in)
     trace = sampler.chain[:, nburn:, :].reshape(-1, ndim)
     lnprob = sampler.lnprobability[:, nburn:]
     samples = sampler.chain[:, nburn:, :]
-    
+
     return trace, sampler, lnprob, samples
 
 def parse_arguments():
@@ -232,7 +259,9 @@ if __name__ == "__main__":
     trace, sampler, lnprob, samples = perform_mcmc(prior, log_posterior.eval,
                 nwalkers=config["calibration"]["nwalkers"],
                 nburn=config["calibration"]["nburn"],
-                nsteps=config["calibration"]["nsteps"])
+                nsteps=config["calibration"]["nsteps"],
+                n_workers=config["calibration"].get("n_workers", 1),
+                pool_type=config["calibration"].get("pool_type", "serial"))
     
     
     

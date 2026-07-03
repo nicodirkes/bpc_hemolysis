@@ -234,9 +234,9 @@ def main():
     bundle_dir = args.bundle_dir.resolve()
     output_path = args.output if args.output else Path("report.pdf")
 
-    cfg = parse_params(bundle_dir / "_params.yml")
+    cfg = parse_params(bundle_dir / "params.yml")
     title = f"Calibration Report - {cfg['species']} / {cfg['model']['name']}"
-    session_id = next(p for p in bundle_dir.name.split("_") if "-" in p)
+    session_id = bundle_dir.name.split("_")[-1]
 
     pdf = MCMCReport(title=title, session_id=session_id)
     add_general_section(pdf, cfg)

@@ -5,16 +5,19 @@ species: human
 # ovine
 # porcine
 
-model: 
+model:
   name: IH_powerLaw_stressBased
   control_variables: ["shear_stress", "exposure_time"]
   use_julia: false
+  n_workers: 1
 
 calibration:
   nwalkers:     50
   nburn:        250
   nsteps:       500
-  parameters: ["A", "alpha", "beta"] 
+  n_workers:    1
+  pool_type:    serial # serial | thread | process
+  parameters: ["A", "alpha", "beta"]
   noise_parameters: ["sigma"]
   calibrate_noise: true
   noise_sigma: 0.05

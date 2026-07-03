@@ -6,15 +6,18 @@ species: porcine
 # porcine
 
 
-model: 
+model:
   name: IH_powerLaw_strainBased
   control_variables: ["shear_stress", "exposure_time"]
   use_julia: true
+  n_workers: 1
 
 calibration:
   nwalkers:     100
   nburn:        7000
   nsteps:       10000
+  n_workers:    1
+  pool_type:    serial # serial | thread | process
   parameters: ["A", "alpha", "beta"] 
   noise_parameters: ["sigma"]
   calibrate_noise: true
