@@ -95,6 +95,24 @@ This computational study was built with the
 
    More options for the orchestrated version are on the way.
 
+3. **Execution profiles** select the container engine with `-profile`:
+   - `-profile local` (**default** if omitted): Docker, for a local workstation.
+   - `-profile cluster`: Apptainer, for a shared cluster node. Process execution
+     still uses the local executor (no batch scheduler yet).
+
+   ```
+   nextflow run main.nf --config_file params.yml -profile cluster
+   ```
+
+   **CPU budget** — `--max_cpus N` caps the cores used for concurrency. It is a
+   *total* budget shared across concurrently running experiments; each experiment
+   consumes `model.n_workers + calibration.n_workers` cores. When unset, all
+   detected cores are used (the `cluster` profile defaults it to `8`, or to
+   `NXF_MAX_CPUS` if that environment variable is set):
+   ```
+   nextflow run main.nf --config_file params.yml -profile cluster --max_cpus 16
+   ```
+
 ## Repository structure
 
 Main components:
@@ -120,8 +138,13 @@ Supporting units: `pull_data/` (fetch experimental data), `preprocessing/`
 
 - [ ] Add Conda lock files for reproducible environments.
 - [ ] Add CI automation.
-- [ ] Add Nextflow profiles to switch automatically between local (Docker) and
-      HPC (Apptainer + cluster executor) configurations.
+- [x] Add Nextflow profiles (`local` / `cluster`) to switch the container engine
+      between Docker and Apptainer.
+- [ ] Provide an Apptainer image (`.sif`) for the Julia forward model so the
+      `cluster` profile runs it end to end.
+- [ ] Add a batch-scheduler executor (e.g. SLURM) as a further profile, which
+      requires the model server and MCMC client to exchange a hostname rather
+      than assume `localhost`.
 
 ## Contact
 
