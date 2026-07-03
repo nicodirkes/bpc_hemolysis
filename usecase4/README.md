@@ -1,3 +1,0 @@
-# Usecase 4: Benchmarking Quantum Circuit Simulation 
-
-COMING SOON...

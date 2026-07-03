@@ -1,6 +1,0 @@
-name: forward_model
-channels:
-  - conda-forge
-dependencies:
-  - psimpy
-  - scipy=1.13

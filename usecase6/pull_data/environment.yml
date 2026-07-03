@@ -1,5 +1,0 @@
-name: stage_data
-channels:
-  - conda-forge
-dependencies:
-  - coscine
