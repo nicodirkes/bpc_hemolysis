@@ -270,9 +270,12 @@ process SERVE_MODEL_PY {
 }
 
 process SERVE_MODEL_JL {
-    container "bpc_hemolysis/model_julia"
-    containerOptions "-p ${umbridge_port+100*(task.attempt-1)}:${umbridge_port+100*(task.attempt-1)}"
-    // container "file://$moduleDir/model_julia/container.sif"
+    // container set per profile in nextflow.config; -p only under Docker
+    containerOptions {
+        workflow.containerEngine == 'docker'
+            ? "-p ${umbridge_port+100*(task.attempt-1)}:${umbridge_port+100*(task.attempt-1)}"
+            : ''
+    }
     cache 'lenient'
     errorStrategy 'retry'
     maxRetries 3
