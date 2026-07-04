@@ -133,10 +133,10 @@ This computational study was built with the
      `umbridge` can't survive an explicit lock) falls back to its `environment.yml`.
    - `--condaEngine` is `micromamba` (default), `mamba`, or `conda`.
 
-   Editing a `<unit>/environment.yml` triggers CI (`.github/scripts/update-locks.sh`)
-   that re-locks conda-only units and adds a micromamba `Dockerfile` to units that
-   can't be locked; a second workflow builds & pushes each unit's image to GHCR
-   (`:latest` + `:<sha>`) for `--containerized`.
+   Editing a `<unit>/environment.yml` triggers one CI pipeline (`conda-recipes.yml`):
+   it re-locks conda-only units (or adds a micromamba `Dockerfile` to units that
+   can't be locked), commits, then builds & pushes each unit's image to GHCR
+   (`:latest` + `:<sha>`) **from the updated locks** for `--containerized`.
 
 ## Repository structure
 
