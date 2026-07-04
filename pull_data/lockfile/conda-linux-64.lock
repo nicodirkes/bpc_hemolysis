@@ -38,6 +38,7 @@ https://conda.anaconda.org/conda-forge/noarch/isodate-0.7.2-pyhd8ed1ab_1.conda#1
 https://conda.anaconda.org/conda-forge/noarch/itsdangerous-2.2.0-pyhd8ed1ab_1.conda#7ac5f795c15f288984e32add616cdc59
 https://conda.anaconda.org/conda-forge/noarch/jmespath-1.1.0-pyhcf101f3_1.conda#cc73a9bd315659dc5307a5270f44786f
 https://conda.anaconda.org/conda-forge/noarch/packaging-26.2-pyhc364b38_0.conda#4c06a92e74452cfa53623a81592e8934
+https://conda.anaconda.org/conda-forge/noarch/pip-26.1.2-pyh145f28c_0.conda#733cc07ed34162ac50b936464b163366
 https://conda.anaconda.org/conda-forge/noarch/platformdirs-4.10.0-pyhcf101f3_0.conda#2c5ef45db85d34799771629bd5860fd7
 https://conda.anaconda.org/conda-forge/noarch/pyparsing-3.3.2-pyhcf101f3_0.conda#3687cc0b82a8b4c17e1f0eb7e47163d5
 https://conda.anaconda.org/conda-forge/noarch/pysocks-1.7.1-pyha55dd90_7.conda#461219d1a5bd61342293efa2c0c90eac
@@ -65,12 +66,12 @@ https://conda.anaconda.org/conda-forge/noarch/owlrl-7.1.4-pyhe01879c_0.conda#6a0
 https://conda.anaconda.org/conda-forge/linux-64/pydantic-core-2.46.4-py314h2e6c369_0.conda#0c96993dbeadf3a277cf757b9f1c9412
 https://conda.anaconda.org/conda-forge/noarch/rdflib-with-html-7.6.0-hfbe710b_0.conda#43761febe557f793d621602cc1a30698
 https://conda.anaconda.org/conda-forge/noarch/urllib3-2.7.0-pyhd8ed1ab_0.conda#cbb88288f74dbe6ada1c6c7d0a97223e
-https://conda.anaconda.org/conda-forge/noarch/botocore-1.43.38-pyhd8ed1ab_0.conda#eea09f107274143eb081efcc4d6b3d61
+https://conda.anaconda.org/conda-forge/noarch/botocore-1.43.39-pyhd8ed1ab_0.conda#86405728dad2cb65223e5c96a64952af
 https://conda.anaconda.org/conda-forge/noarch/pydantic-2.13.4-pyhcf101f3_0.conda#729843edafc0899b3348bd3f19525b9d
 https://conda.anaconda.org/conda-forge/noarch/pyshacl-0.31.0-pyhcf101f3_0.conda#372abdc226c0f9c415250e05291b6734
 https://conda.anaconda.org/conda-forge/noarch/requests-2.34.2-pyhcf101f3_0.conda#4a85203c1d80c1059086ae860836ffb9
 https://conda.anaconda.org/conda-forge/noarch/requests-cache-1.2.1-pyhd8ed1ab_1.conda#584e6aab3a5cffde537c575ad6a673ff
 https://conda.anaconda.org/conda-forge/noarch/requests-toolbelt-1.0.0-pyhd8ed1ab_1.conda#66de8645e324fda0ea6ef28c2f99a2ab
 https://conda.anaconda.org/conda-forge/noarch/s3transfer-0.19.0-pyhd8ed1ab_0.conda#a359066b94e013283b7e11559fbb19fc
-https://conda.anaconda.org/conda-forge/noarch/boto3-1.43.38-pyhd8ed1ab_0.conda#a9e402d2310129646eeeed328c506f75
+https://conda.anaconda.org/conda-forge/noarch/boto3-1.43.39-pyhd8ed1ab_0.conda#5df472114bb984c6a7d74139de2597fa
 https://conda.anaconda.org/conda-forge/noarch/coscine-0.12.0-pyhd8ed1ab_0.conda#f47158773a79d659fb4092dc3899361b
