@@ -113,6 +113,31 @@ This computational study was built with the
    nextflow run main.nf --config_file params.yml -profile cluster --max_cpus 16
    ```
 
+4. **Reproducible environments.** Each unit declares its environment in
+   `main.nf` (`conda "<unit>/environment.yml"`); how that is resolved is wired in
+   `nextflow.config` from flags. Each run picks, per unit, the first that applies:
+
+   | Mode | Flag | What a unit uses |
+   | --- | --- | --- |
+   | Locked (default) | — | committed `<unit>/lockfile/conda-<platform>.lock` |
+   | Unlocked | `--useLockFiles false` | solve `<unit>/environment.yml` at runtime |
+   | Containerized | `--containerized` | the unit's image from GHCR, no conda |
+
+   ```
+   nextflow run main.nf --config_file params.yml                 # locked
+   nextflow run main.nf --config_file params.yml --containerized # images from GHCR
+   ```
+   - `--lockPlatform` is **auto-detected** from the host
+     (`linux-64` | `linux-aarch64` | `osx-64` | `osx-arm64` | `win-64`); override if needed.
+   - A unit with no lock for the platform (e.g. `model`/`mcmc`, whose pip-only
+     `umbridge` can't survive an explicit lock) falls back to its `environment.yml`.
+   - `--condaEngine` is `micromamba` (default), `mamba`, or `conda`.
+
+   Editing a `<unit>/environment.yml` triggers CI (`.github/scripts/update-locks.sh`)
+   that re-locks conda-only units and adds a micromamba `Dockerfile` to units that
+   can't be locked; a second workflow builds & pushes each unit's image to GHCR
+   (`:latest` + `:<sha>`) for `--containerized`.
+
 ## Repository structure
 
 Main components:
@@ -136,7 +161,7 @@ Supporting units: `pull_data/` (fetch experimental data), `preprocessing/`
 
 ## Roadmap
 
-- [ ] Add Conda lock files for reproducible environments.
+- [x] Add Conda lock files for reproducible environments.
 - [ ] Add CI automation.
 - [x] Add Nextflow profiles (`local` / `cluster`) to switch the container engine
       between Docker and Apptainer.
