@@ -11,4 +11,4 @@ dependencies:
   - seaborn
   - h5py
   - h5netcdf
-  - arviz=0.20
+  - arviz

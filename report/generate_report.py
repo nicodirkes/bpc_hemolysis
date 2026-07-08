@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -10,10 +11,20 @@ RHAT_GOOD      = 1.10
 ESS_EXCELLENT  = 400
 ESS_ACCEPTABLE = 100
 
-COLOR_EXCELLENT = (220, 237, 200)
-COLOR_GOOD      = (255, 243, 176)
-COLOR_POOR      = (255, 204, 188)
-COLOR_HEADER    = (220, 220, 220)
+# Ink hierarchy (light surface) -- text always wears these, never a series/status
+# color, so status hues stay legible as a distinct signal.
+INK_PRIMARY   = (11, 11, 11)
+INK_SECONDARY = (82, 81, 78)
+INK_MUTED     = (137, 135, 129)
+HAIRLINE      = (225, 224, 217)
+BASELINE      = (195, 194, 183)
+
+# Fixed status palette (good/warning/critical) -- reserved meaning, never reused
+# for series identity. Used only on the word/value itself (bold text), never as
+# a cell fill -- text is the label, so no separate icon/background is needed.
+STATUS_EXCELLENT = (12, 163, 12)    # #0ca30c "good"
+STATUS_GOOD      = (250, 178, 25)   # #fab219 "warning"
+STATUS_POOR      = (208, 59, 59)    # #d03b3b "critical"
 
 PAGE_MARGIN_MM = 15
 FONT = "Helvetica"
@@ -35,198 +46,280 @@ def parse_params(params_path: Path) -> dict:
 
 def rhat_label(value: float) -> tuple:
     if value < RHAT_EXCELLENT:
-        return "Excellent", COLOR_EXCELLENT
+        return "Excellent", STATUS_EXCELLENT
     elif value < RHAT_GOOD:
-        return "Good", COLOR_GOOD
-    return "Poor", COLOR_POOR
+        return "Good", STATUS_GOOD
+    return "Poor", STATUS_POOR
 
 
 def ess_label(value: float) -> tuple:
     if value > ESS_EXCELLENT:
-        return "Excellent", COLOR_EXCELLENT
+        return "Excellent", STATUS_EXCELLENT
     elif value > ESS_ACCEPTABLE:
-        return "Acceptable", COLOR_GOOD
-    return "Poor", COLOR_POOR
+        return "Acceptable", STATUS_GOOD
+    return "Poor", STATUS_POOR
 
 
 class MCMCReport(FPDF):
-    def __init__(self, title: str, session_id: str):
+    def __init__(self, title: str, meta: str):
         super().__init__()
         self._title = title
-        self._session_id = session_id
+        self._meta = meta
         self.set_margins(PAGE_MARGIN_MM, PAGE_MARGIN_MM, PAGE_MARGIN_MM)
         self.set_auto_page_break(auto=True, margin=PAGE_MARGIN_MM)
 
     def header(self):
-        self.set_font(FONT, "B", 10)
-        self.cell(0, 6, self._title, align="C", new_x="LMARGIN", new_y="NEXT")
-        self.set_font(FONT, "I", 8)
-        self.cell(0, 5, f"{self._session_id}", align="C", new_x="LMARGIN", new_y="NEXT")
-        self.ln(2)
+        self.set_font(FONT, "", 8)
+        self.set_text_color(*INK_MUTED)
+        self.cell(0, 5, self._title, align="L")
+        self.set_x(-70)
+        self.cell(55, 5, self._meta, align="R", new_x="LMARGIN", new_y="NEXT")
+        self.set_draw_color(*HAIRLINE)
+        self.set_line_width(0.2)
+        y = self.get_y() + 1
+        self.line(PAGE_MARGIN_MM, y, self.w - PAGE_MARGIN_MM, y)
+        self.set_y(y + 5)
+        self.set_text_color(*INK_PRIMARY)
 
     def footer(self):
         self.set_y(-12)
-        self.set_font(FONT, "I", 8)
-        self.cell(0, 8, f"Page {self.page_no()}", align="C")
+        self.set_font(FONT, "", 8)
+        self.set_text_color(*INK_MUTED)
+        self.cell(0, 8, f"{self.page_no()}", align="C")
+        self.set_text_color(*INK_PRIMARY)
 
     def section_title(self, text: str):
-        self.set_font(FONT, "B", 13)
-        self.set_fill_color(*COLOR_HEADER)
-        self.cell(0, 9, text, fill=True, new_x="LMARGIN", new_y="NEXT")
-        self.ln(3)
+        self.set_font(FONT, "B", 15)
+        self.set_text_color(*INK_PRIMARY)
+        self.cell(0, 9, text, new_x="LMARGIN", new_y="NEXT")
+        self.set_draw_color(*HAIRLINE)
+        self.set_line_width(0.3)
+        y = self.get_y() + 1
+        self.line(self.l_margin, y, self.w - self.r_margin, y)
+        self.set_y(y + 5)
 
     def subsection_title(self, text: str):
-        self.set_font(FONT, "B", 11)
-        self.cell(0, 7, text, new_x="LMARGIN", new_y="NEXT")
-        self.ln(2)
+        self.set_font(FONT, "B", 10)
+        self.set_text_color(*INK_MUTED)
+        self.cell(0, 6, text.upper(), new_x="LMARGIN", new_y="NEXT")
+        self.ln(1)
+        self.set_text_color(*INK_PRIMARY)
 
     def body_text(self, text: str):
-        self.set_font(FONT, "", 10)
-        self.multi_cell(0, 6, text)
+        self.set_font(FONT, "", 9.5)
+        self.set_text_color(*INK_SECONDARY)
+        self.multi_cell(0, 5.5, text)
+        self.set_text_color(*INK_PRIMARY)
         self.ln(2)
 
     def embed_image(self, img_path: Path, caption: str, w_mm: float = 160):
         x = (self.w - w_mm) / 2
         self.image(str(img_path), x=x, w=w_mm)
         self.set_font(FONT, "I", 9)
+        self.set_text_color(*INK_SECONDARY)
         self.cell(0, 6, caption, align="C", new_x="LMARGIN", new_y="NEXT")
+        self.set_text_color(*INK_PRIMARY)
         self.ln(4)
 
 
-def add_general_section(pdf: MCMCReport, cfg: dict):
-    pdf.add_page()
-    pdf.section_title("1. Run Information")
+def draw_hairline_table(pdf: MCMCReport, headers: list, col_widths: list, rows: list, row_h: float = 8):
+    """
+    Borderless table: bold muted uppercase header over a baseline rule, then
+    rows separated by hairlines instead of a full cell grid.
 
-    cal   = cfg["calibration"]
+    rows : list of list of (text, align, color_or_None, bold)
+    """
+    pdf.set_font(FONT, "B", 8)
+    pdf.set_text_color(*INK_MUTED)
+    for h, w in zip(headers, col_widths):
+        pdf.cell(w, 6, h.upper(), align="L")
+    pdf.ln(6)
+
+    pdf.set_draw_color(*BASELINE)
+    pdf.set_line_width(0.3)
+    y = pdf.get_y()
+    pdf.line(pdf.l_margin, y, pdf.l_margin + sum(col_widths), y)
+    pdf.ln(1)
+
+    for row in rows:
+        for (text, align, color, bold), w in zip(row, col_widths):
+            pdf.set_font(FONT, "B" if bold else "", 9.5)
+            pdf.set_text_color(*(color if color else INK_PRIMARY))
+            pdf.cell(w, row_h, str(text), align=align)
+        pdf.ln(row_h)
+        pdf.set_draw_color(*HAIRLINE)
+        pdf.set_line_width(0.2)
+        y = pdf.get_y()
+        pdf.line(pdf.l_margin, y, pdf.l_margin + sum(col_widths), y)
+
+    pdf.set_text_color(*INK_PRIMARY)
+    pdf.ln(3)
+
+
+def add_hero(pdf: MCMCReport, cfg: dict, diag_csv_path: Path, generated_at: str, session_id: str):
+    pdf.add_page()
+
+    pdf.set_font(FONT, "B", 22)
+    pdf.set_text_color(*INK_PRIMARY)
+    pdf.cell(0, 11, "Calibration Report", new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_font(FONT, "", 13)
+    pdf.set_text_color(*INK_SECONDARY)
+    pdf.cell(0, 7, f"{cfg['species'].capitalize()} - {cfg['model']['name']}", new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_font(FONT, "", 9)
+    pdf.set_text_color(*INK_MUTED)
+    pdf.cell(0, 6, f"Generated {generated_at} - Session {session_id}", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*INK_PRIMARY)
+    pdf.ln(6)
+
+    df = pd.read_csv(diag_csv_path)
+    worst_rhat = float(df["r_hat"].max())
+    min_ess = float(df[["ess_bulk", "ess_tail"]].min().min())
+
+    rhat_text, rhat_color = rhat_label(worst_rhat)
+    ess_text,  ess_color  = ess_label(min_ess)
+
+    # Overall verdict uses the same worst-case quality word as the table's
+    # per-parameter R-hat column, rather than a separate PASS/FAIL threshold --
+    # one consistent vocabulary instead of a binary judgment on the same number.
+    tiles = [
+        ("Quality",     rhat_text, rhat_color),
+        ("Worst R-hat", f"{worst_rhat:.2f}", rhat_color),
+        ("Min ESS",     f"{min_ess:.0f}",    ess_color),
+    ]
+    content_w = pdf.w - 2 * PAGE_MARGIN_MM
+    tile_w = content_w / len(tiles)
+    y0 = pdf.get_y()
+    for i, (label, value, color) in enumerate(tiles):
+        x = PAGE_MARGIN_MM + i * tile_w
+        pdf.set_xy(x, y0)
+        pdf.set_font(FONT, "B", 20)
+        pdf.set_text_color(*color)
+        pdf.cell(tile_w, 10, value, align="L")
+        pdf.set_xy(x, y0 + 10)
+        pdf.set_font(FONT, "", 8)
+        pdf.set_text_color(*INK_MUTED)
+        pdf.cell(tile_w, 5, label.upper(), align="L")
+
+    pdf.set_xy(PAGE_MARGIN_MM, y0 + 18)
+    pdf.set_text_color(*INK_PRIMARY)
+    pdf.set_draw_color(*HAIRLINE)
+    pdf.set_line_width(0.2)
+    y = pdf.get_y()
+    pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
+    pdf.set_y(y + 6)
+
+
+def add_run_info(pdf: MCMCReport, cfg: dict):
+    pdf.section_title("Run Configuration")
+
+    cal = cfg["calibration"]
     model = cfg["model"]
 
-    # Two-column layout: run metadata left, parameter priors right
-    left_x      = PAGE_MARGIN_MM
-    right_x     = PAGE_MARGIN_MM + 95
-    label_w     = 45   # fixed width so all values align at the same x
-    val_w       = 45
-    prior_key_w = 28
-    row_h       = 6
-    start_y     = pdf.get_y()
-
-    # Left column: run metadata
-    run_lines = [
+    config_rows = [
         ("Species",           cfg["species"]),
-        ("Model name",        model["name"]),
+        ("Model",             model["name"]),
         ("Control variables", ", ".join(model["control_variables"])),
         ("Likelihood",        cal["likelihood"]),
         ("MCMC walkers",      str(cal["nwalkers"])),
         ("Burn-in steps",     str(cal["nburn"])),
-        ("Production steps",  str(cal["nsteps"])),
-        ("Calibrated params", ", ".join(cal["parameters"])),
-        ("Noise parameters",  ", ".join(cal.get("noise_parameters", []))),
-        ("Calibrate noise",   str(cal.get("calibrate_noise", False))),
+        ("Production steps",  str(cal["nsteps"] - cal["nburn"])),
+        ("Calibrate noise",   "Yes" if cal.get("calibrate_noise") else "No"),
     ]
-    pdf.set_font(FONT, "", 10)
-    for label, value in run_lines:
-        pdf.set_x(left_x)
-        pdf.cell(label_w, row_h, f"{label}:", align="L")
-        pdf.cell(val_w, row_h, value, align="L", new_x="LMARGIN", new_y="NEXT")
+    label_w = 55
+    row_h = 6.5
+    for label, value in config_rows:
+        pdf.set_font(FONT, "", 9)
+        pdf.set_text_color(*INK_MUTED)
+        pdf.cell(label_w, row_h, label, align="L")
+        pdf.set_font(FONT, "", 10.5)
+        pdf.set_text_color(*INK_PRIMARY)
+        pdf.cell(0, row_h, str(value), align="L", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(5)
 
-    left_end_y = pdf.get_y()
-
-    # Right column: parameter priors
-    pdf.set_xy(right_x, start_y)
-    pdf.set_font(FONT, "B", 10)
-    pdf.cell(0, row_h, "Parameter Priors", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(2)
-
+    pdf.subsection_title("Calibrated Parameters")
+    headers = ["Parameter", "Distribution", "Bound / Location", "Bound / Scale"]
+    col_widths = [45, 45, 45, 45]
+    rows = []
     for prior in cal["priors"]:
         dist = prior["distribution"]
         attr = dist["attribute"]
-
-        pdf.set_xy(right_x, pdf.get_y())
-        pdf.set_font(FONT, "B", 10)
-        pdf.cell(0, row_h, prior["name"], new_x="LMARGIN", new_y="NEXT")
-
         if dist["type"] == "uniform":
-            prior_lines = [
-                ("Lower bound", str(attr["lower_bound"])),
-                ("Upper bound", str(attr["upper_bound"])),
-            ]
+            b1, b2 = str(attr["lower_bound"]), str(attr["upper_bound"])
         else:
-            prior_lines = [
-                ("Location", str(attr.get("location", ""))),
-                ("Scale",    str(attr.get("scale", ""))),
-            ]
-
-        pdf.set_font(FONT, "", 9)
-        for lbl, val in prior_lines:
-            pdf.set_xy(right_x + 4, pdf.get_y())
-            pdf.cell(prior_key_w, row_h - 1, f"{lbl}:", align="L")
-            pdf.cell(0, row_h - 1, val, align="L", new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(2)
-
-    right_end_y = pdf.get_y()
-    pdf.set_y(max(left_end_y, right_end_y) + 4)
+            b1, b2 = str(attr.get("location", "")), str(attr.get("scale", ""))
+        rows.append([
+            (prior["name"],          "L", None, True),
+            (dist["type"].capitalize(), "L", None, False),
+            (b1, "R", None, False),
+            (b2, "R", None, False),
+        ])
+    draw_hairline_table(pdf, headers, col_widths, rows)
 
 
 def add_diagnostics_section(pdf: MCMCReport, bundle_dir: Path):
     diag_dir = bundle_dir / "diagnostics"
 
     pdf.add_page()
-    pdf.section_title("2. MCMC Diagnostics")
-    pdf.embed_image(img_path = diag_dir / "trace.png", caption="Figure 2 - Trace plots. Left: marginal posteriors; right: sample traces per walker.", w_mm=160)
+    pdf.section_title("MCMC Diagnostics")
+
+    pdf.embed_image(img_path=bundle_dir / "corner_plot.png",
+                     caption="Figure 1 - Pairwise posterior corner plot.",
+                     w_mm=150)
+
+    pdf.set_font(FONT, "I", 9)
+    pdf.set_text_color(*INK_SECONDARY)
+    pdf.cell(0, 5, "Table 1 - Convergence diagnostics (post burn-in).", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*INK_PRIMARY)
+    pdf.ln(2)
     add_diagnostics_table(pdf, diag_dir / "convergence_diagnostics.csv")
     pdf.body_text(
         "R-hat thresholds: < 1.01 = Excellent, 1.01-1.10 = Good, >= 1.10 = Poor.\n"
         "ESS thresholds: > 400 = Excellent, 101-400 = Acceptable, <= 100 = Poor."
-    )    
-    pdf.embed_image(img_path = diag_dir / "autocorr.png", caption="Figure 3 - Autocorrelation by lag for each parameter.", w_mm=160)
+    )
 
+    pdf.embed_image(img_path=diag_dir / "trace_postburnin.png",
+                     caption="Figure 2 - Trace plots. Left: post burn-in posteriors; right: sample traces per walker (burn-in marked).",
+                     w_mm=160)
+    pdf.embed_image(img_path=diag_dir / "autocorr.png",
+                     caption="Figure 3 - Autocorrelation by lag for each parameter.",
+                     w_mm=160)
 
 
 def add_diagnostics_table(pdf: MCMCReport, csv_path: Path):
     df = pd.read_csv(csv_path)
 
-    col_widths = [25, 20, 20, 22, 22, 20, 27, 27]
-    headers    = ["Parameter", "Mean", "SD", "ESS bulk", "ESS tail",
-                  "R-hat", "ESS quality", "R-hat quality"]
-    row_h = 8
+    headers = ["Parameter", "Mean", "SD", "ESS bulk", "ESS tail", "R-hat", "ESS quality", "R-hat quality"]
+    col_widths = [25, 20, 20, 21, 21, 20, 26, 27]
 
-    pdf.set_font(FONT, "B", 9)
-    pdf.set_fill_color(*COLOR_HEADER)
-    for header, w in zip(headers, col_widths):
-        pdf.cell(w, row_h, header, border=1, fill=True, align="C")
-    pdf.ln()
-
-    pdf.set_font(FONT, "", 9)
+    rows = []
     for _, row in df.iterrows():
         ess_bulk = float(row["ess_bulk"])
         ess_tail = float(row["ess_tail"])
         rhat     = float(row["r_hat"])
 
-        ess_bulk_text, ess_bulk_color = ess_label(ess_bulk)
-        ess_tail_text, ess_tail_color = ess_label(ess_tail)
-        rhat_text,     rhat_color     = rhat_label(rhat)
+        ess_bulk_text, ess_bulk_status = ess_label(ess_bulk)
+        ess_tail_text, ess_tail_status = ess_label(ess_tail)
+        rhat_text,     rhat_status     = rhat_label(rhat)
 
         # ESS quality uses the worse of bulk/tail
-        ess_quality_text  = ess_bulk_text if ess_bulk <= ess_tail else ess_tail_text
-        ess_quality_color = ess_bulk_color if ess_bulk <= ess_tail else ess_tail_color
+        worse_is_bulk = ess_bulk <= ess_tail
+        ess_quality_text   = ess_bulk_text if worse_is_bulk else ess_tail_text
+        ess_quality_status = ess_bulk_status if worse_is_bulk else ess_tail_status
 
-        cells = [
-            (str(row["parameter"]),    None,              "L"),
-            (f"{float(row['mean']):.4f}", None,           "R"),
-            (f"{float(row['sd']):.4f}",   None,           "R"),
-            (f"{ess_bulk:.0f}",         ess_bulk_color,   "R"),
-            (f"{ess_tail:.0f}",         ess_tail_color,   "R"),
-            (f"{rhat:.4f}",             rhat_color,       "R"),
-            (ess_quality_text,          ess_quality_color,"C"),
-            (rhat_text,                 rhat_color,       "C"),
-        ]
+        rows.append([
+            (str(row["parameter"]),        "L", None, False),
+            (f"{float(row['mean']):.4f}",  "R", None, False),
+            (f"{float(row['sd']):.4f}",    "R", None, False),
+            (f"{ess_bulk:.0f}",            "R", None, False),
+            (f"{ess_tail:.0f}",            "R", None, False),
+            (f"{rhat:.2f}",                "R", None, False),
+            (ess_quality_text,             "C", ess_quality_status, True),
+            (rhat_text,                    "C", rhat_status, True),
+        ])
 
-        for (text, color, align), w in zip(cells, col_widths):
-            if color:
-                pdf.set_fill_color(*color)
-                pdf.cell(w, row_h, text, border=1, fill=True, align=align)
-            else:
-                pdf.cell(w, row_h, text, border=1, fill=False, align=align)
-        pdf.ln()
+    draw_hairline_table(pdf, headers, col_widths, rows)
 
 
 def main():
@@ -235,16 +328,14 @@ def main():
     output_path = args.output if args.output else Path("report.pdf")
 
     cfg = parse_params(bundle_dir / "params.yml")
-    title = f"Calibration Report - {cfg['species']} / {cfg['model']['name']}"
+    now = datetime.now()
+    generated_at = f"{now.day} {now:%b %Y, %H:%M}"
     session_id = bundle_dir.name.split("_")[-1]
+    running_title = f"BPC_Hemolysis // {cfg['species'].capitalize()} // {cfg['model']['name']}"
 
-    pdf = MCMCReport(title=title, session_id=session_id)
-    add_general_section(pdf, cfg)
-    pdf.embed_image(
-        bundle_dir / "corner_plot.png",
-        caption="Figure 1 - Pairwise posterior corner plot.",
-        w_mm=150,
-    )
+    pdf = MCMCReport(title=running_title, meta=generated_at)
+    add_hero(pdf, cfg, bundle_dir / "diagnostics" / "convergence_diagnostics.csv", generated_at, session_id)
+    add_run_info(pdf, cfg)
     add_diagnostics_section(pdf, bundle_dir)
 
     pdf.output(str(output_path))
