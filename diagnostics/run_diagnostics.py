@@ -204,7 +204,7 @@ def _plot_posteriors(idata, param_labels, output_dir):
 
 def run_diagnostics(idata, param_labels=None, output_dir=None, nburn=0):
     """
-    Create MCMC diagnostics. Qualitative plots and Quantitavie metrics
+    Create MCMC diagnostics. Qualitative plots and Quantitative metrics
 
     Parameters
     ----------
