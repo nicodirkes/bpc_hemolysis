@@ -328,7 +328,8 @@ def main():
     output_path = args.output if args.output else Path("report.pdf")
 
     cfg = parse_params(bundle_dir / "params.yml")
-    generated_at = datetime.now().strftime("%-d %b %Y, %H:%M")
+    now = datetime.now()
+    generated_at = f"{now.day} {now:%b %Y, %H:%M}"
     session_id = bundle_dir.name.split("_")[-1]
     running_title = f"BPC_Hemolysis // {cfg['species'].capitalize()} // {cfg['model']['name']}"
 
