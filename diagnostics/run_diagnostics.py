@@ -107,7 +107,17 @@ def _add_panel_label(ax, idx):
             verticalalignment='top', bbox=LABEL_BBOX)
 
 
-def _plot_trace(idata, param_labels, output_dir):
+def _plot_trace(idata, param_labels, output_dir, nburn=0, filename='trace.png', mark_burnin=False):
+    """
+    Trace plot: left panel is the per-chain KDE, right panel is the raw draws.
+
+    mark_burnin=False (default): KDE and traces use the full chain -- burn-in
+        behavior stays visible (used for trace.png).
+    mark_burnin=True: KDE uses only draws after `nburn` (matching what the
+        quantitative summary reports on), the trace panel still shows the full
+        chain, and a vertical line marks the burn-in cutoff (used for
+        trace_postburnin.png).
+    """
     param_names = list(param_labels)
     n_params = len(param_names)
 
@@ -124,16 +134,24 @@ def _plot_trace(idata, param_labels, output_dir):
         for c in range(da.sizes['chain']):
             color = CHAIN_COLORS[c % len(CHAIN_COLORS)]
             chain_vals = da.isel(chain=c).values
-            grid, pdf, _ = az.kde(chain_vals)
+            kde_vals = chain_vals[nburn:] if mark_burnin else chain_vals
+            grid, pdf, _ = az.kde(kde_vals)
             axes[i, 0].plot(grid, pdf, color=color, alpha=CHAIN_ALPHA, linewidth=1.0)
             axes[i, 1].plot(draws, chain_vals, color=color, alpha=CHAIN_ALPHA, linewidth=0.8)
+
+        if mark_burnin and nburn:
+            axes[i, 1].axvline(nburn, color='dimgray', linestyle='--', linewidth=1.0, alpha=0.8)
 
         axes[i, 0].set_ylabel(label)
         # _add_panel_label(axes[i, 0], i)
 
+    if mark_burnin and nburn:
+        axes[0, 1].text(nburn, axes[0, 1].get_ylim()[1], ' burn-in', color='dimgray',
+                         fontsize=8, ha='left', va='top')
+
     axes[-1, 0].set_xlabel('Density')
     axes[-1, 1].set_xlabel('Draw')
-    _save_figure(fig, output_dir, 'trace.png')
+    _save_figure(fig, output_dir, filename)
 
 
 def _plot_autocorr(idata, param_labels, output_dir):
@@ -196,11 +214,12 @@ def run_diagnostics(idata, param_labels=None, output_dir=None, nburn=0):
         Example: mu and xi
     output_dir : str or Path, optional
         Directory to save figures as PNG. Filenames are fixed:
-        trace.png, autocorr.png, posteriors.png.
+        trace.png, trace_postburnin.png, autocorr.png, posteriors.png.
     nburn : int, optional
         Leading draws discarded as burn-in for the quantitative summary
-        (convergence_diagnostics.csv) only -- the plots show the full chain
-        so burn-in behavior stays visible.
+        (convergence_diagnostics.csv) and for trace_postburnin.png's KDE
+        panel. trace.png always shows the full chain so burn-in behavior
+        stays visible there.
     """
     if param_labels is None:
         param_labels = {p: p for p in idata.posterior.data_vars}
@@ -208,6 +227,7 @@ def run_diagnostics(idata, param_labels=None, output_dir=None, nburn=0):
     out = Path(output_dir) if output_dir is not None else None
 
     _plot_trace(idata, param_labels, out)
+    _plot_trace(idata, param_labels, out, nburn=nburn, filename='trace_postburnin.png', mark_burnin=True)
     _plot_autocorr(idata, param_labels, out)
     _plot_posteriors(idata, param_labels, out)
 

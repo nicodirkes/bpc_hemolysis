@@ -279,8 +279,8 @@ def add_diagnostics_section(pdf: MCMCReport, bundle_dir: Path):
         "ESS thresholds: > 400 = Excellent, 101-400 = Acceptable, <= 100 = Poor."
     )
 
-    pdf.embed_image(img_path=diag_dir / "trace.png",
-                     caption="Figure 2 - Trace plots. Left: marginal posteriors; right: sample traces per walker.",
+    pdf.embed_image(img_path=diag_dir / "trace_postburnin.png",
+                     caption="Figure 2 - Trace plots. Left: post burn-in posteriors; right: sample traces per walker (burn-in marked).",
                      w_mm=160)
     pdf.embed_image(img_path=diag_dir / "autocorr.png",
                      caption="Figure 3 - Autocorrelation by lag for each parameter.",
