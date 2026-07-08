@@ -4,6 +4,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import arviz as az
 import numpy as np
+import yaml
 
 # ---------------------------------------------------------------------------
 # Global matplotlib defaults
@@ -31,6 +32,15 @@ SAVE_DPI = 200
 TRACE_COLOR = '#8cc5e3'
 LABEL_BBOX = dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='none')
 
+# Validated 8-hue categorical palette (fixed order, CVD-safe adjacency) used to
+# color individual MCMC chains. Chain identity itself is meaningless (walker #17
+# vs #3 carries no information), so beyond 8 chains the palette repeats rather
+# than generating new hues -- keeps chains visually distinct without an
+# unbounded rainbow.
+CHAIN_COLORS = ['#2a78d6', '#1baf7a', '#eda100', '#008300',
+                 '#4a3aa7', '#e34948', '#e87ba4', '#eb6834']
+CHAIN_ALPHA = 0.65
+
 # Per-subplot sizes (width, height) in inches.
 # Trace rows are wide and short (time series needs horizontal space).
 # Autocorr is near-square (symmetric lag axis).
@@ -56,7 +66,7 @@ def run_quantitative_diagnostics(idata, param_labels, output_dir=None):
         Directory for convergence_diagnostics.csv. Defaults to current directory.
     """
     param_names = list(param_labels)
-    summary = az.summary(idata, var_names=param_names)
+    summary = az.summary(idata, var_names=param_names, round_to=None)
     display = summary[["mean", "sd", "ess_bulk", "ess_tail", "r_hat"]].copy()
     display["converged"] = display["r_hat"].apply(
         lambda x: "PASS" if x <= RHAT_THRESHOLD else "FAIL"
@@ -106,18 +116,18 @@ def _plot_trace(idata, param_labels, output_dir):
     if n_params == 1:
         axes = axes.reshape(1, -1)
 
-    az.plot_trace(
-        idata,
-        var_names=param_names,
-        axes=axes,
-        trace_kwargs={"color": TRACE_COLOR, "alpha": 1.0, "linewidth": 0.8},
-        hist_kwargs={"color": TRACE_COLOR, "edgecolor": "none", "bins": N_BINS, "alpha": 1.0,},
-        compact=False,
-    )
-
+    posterior = az.extract(idata, var_names=param_names, combined=False)
     for i, (param, label) in enumerate(param_labels.items()):
-        axes[i, 0].set_title('')
-        axes[i, 1].set_title('')
+        da = posterior[param]
+        draws = da['draw'].values
+
+        for c in range(da.sizes['chain']):
+            color = CHAIN_COLORS[c % len(CHAIN_COLORS)]
+            chain_vals = da.isel(chain=c).values
+            grid, pdf, _ = az.kde(chain_vals)
+            axes[i, 0].plot(grid, pdf, color=color, alpha=CHAIN_ALPHA, linewidth=1.0)
+            axes[i, 1].plot(draws, chain_vals, color=color, alpha=CHAIN_ALPHA, linewidth=0.8)
+
         axes[i, 0].set_ylabel(label)
         # _add_panel_label(axes[i, 0], i)
 
@@ -132,15 +142,18 @@ def _plot_autocorr(idata, param_labels, output_dir):
     fig, axes_flat, _, n_cols = _make_subplot_grid(n_params, n_cols=3,
                                                    subplot_size=AUTOCORR_SUBPLOT_SIZE)
 
-    az.plot_autocorr(
-        idata, var_names=param_names,
-        max_lag=MAX_AUTOCORR_LAG, combined=True,
-        ax=axes_flat[:n_params],
-    )
+    # Bottom-most filled subplot per column (the grid can be ragged when
+    # n_params isn't a multiple of n_cols, so that's not always the last row).
+    last_idx_per_col = {idx % n_cols: idx for idx in range(n_params)}
 
+    autocorr = idata.posterior.azstats.autocorr(dim='draw')
+    lags = np.arange(MAX_AUTOCORR_LAG + 1)
     for idx, (param, label) in enumerate(param_labels.items()):
         ax = axes_flat[idx]
-        ax.set_title('')
+        # Average per-chain autocorrelation across chains (matches old combined=True).
+        acf = autocorr[param].isel(draw=slice(0, MAX_AUTOCORR_LAG + 1)).mean(dim='chain').values
+
+        ax.vlines(lags, 0, acf, color=TRACE_COLOR)
         ax.axhline(0, color='dimgray', linestyle='--', linewidth=0.5, alpha=0.5)
         ax.set_ylim(-0.1, 1.05)
         ax.text(0.5, 1.02, label, transform=ax.transAxes, fontsize=10,
@@ -148,7 +161,7 @@ def _plot_autocorr(idata, param_labels, output_dir):
         # _add_panel_label(ax, idx)
         if idx % n_cols == 0:
             ax.set_ylabel('Autocorrelation')
-        if idx // n_cols == (n_params - 1) // n_cols:
+        if idx == last_idx_per_col[idx % n_cols]:
             ax.set_xlabel('Lag')
 
     _save_figure(fig, output_dir, 'autocorr.png')
@@ -171,9 +184,9 @@ def _plot_posteriors(idata, param_labels, output_dir):
     _save_figure(fig, output_dir, 'posteriors.png')
 
 
-def run_diagnostics(idata, param_labels=None, output_dir=None):
+def run_diagnostics(idata, param_labels=None, output_dir=None, nburn=0):
     """
-    Create MCMC diagnostics. Qualitative plots and Quantitavie metrics 
+    Create MCMC diagnostics. Qualitative plots and Quantitavie metrics
 
     Parameters
     ----------
@@ -184,24 +197,37 @@ def run_diagnostics(idata, param_labels=None, output_dir=None):
     output_dir : str or Path, optional
         Directory to save figures as PNG. Filenames are fixed:
         trace.png, autocorr.png, posteriors.png.
+    nburn : int, optional
+        Leading draws discarded as burn-in for the quantitative summary
+        (convergence_diagnostics.csv) only -- the plots show the full chain
+        so burn-in behavior stays visible.
     """
     if param_labels is None:
         param_labels = {p: p for p in idata.posterior.data_vars}
 
     out = Path(output_dir) if output_dir is not None else None
 
-
-    
     _plot_trace(idata, param_labels, out)
     _plot_autocorr(idata, param_labels, out)
     _plot_posteriors(idata, param_labels, out)
-    run_quantitative_diagnostics(idata, param_labels, out)
+
+    post_burnin = idata.isel(draw=slice(nburn, None)) if nburn else idata
+    run_quantitative_diagnostics(post_burnin, param_labels, out)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run MCMC diagnostics on a NetCDF inference data file.")
     parser.add_argument("--idata-path", type=Path, help="Path to the .nc InferenceData file.")
     parser.add_argument("--output-dir", type=Path, default=Path("."), help="Directory to write outputs (default: current directory).")
+    parser.add_argument("--config", type=Path, default=None,
+                        help="YAML config file to read calibration.nburn from (draws discarded as "
+                             "burn-in for the convergence summary only). No trimming if omitted.")
     args = parser.parse_args()
 
+    nburn = 0
+    if args.config is not None:
+        with open(args.config) as f:
+            cfg = yaml.safe_load(f)
+        nburn = cfg["calibration"]["nburn"]
+
     idata = az.from_netcdf(args.idata_path)
-    run_diagnostics(idata, output_dir=args.output_dir)
+    run_diagnostics(idata, output_dir=args.output_dir, nburn=nburn)

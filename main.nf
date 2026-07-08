@@ -110,9 +110,16 @@ workflow bpc_hemolysis {
         mcmc_inputs
     )
 
+    // Join with params_yaml by key so RUN_DIAGNOSTICS can read calibration.nburn
+    // itself (same pattern as MCMC_CALIBRATION) and discard burn-in draws for
+    // the convergence summary only -- the plots keep the full chain.
+    diagnostics_inputs = MCMC_CALIBRATION.out.mcmc_idata
+        .join(workflow_meta.map { row -> [row[0], row[3]] })
+    // diagnostics_inputs: [key, mcmc_idata, params_yaml]
+
     RUN_DIAGNOSTICS(
         file("$moduleDir/diagnostics/run_diagnostics.py"),
-        MCMC_CALIBRATION.out.mcmc_idata,
+        diagnostics_inputs,
         "diagnostics"
     )
 
@@ -168,7 +175,7 @@ process PULL_DATA_COSCINE {
         # Read access token and setup client
         with open("$token_file", "rt") as fp:
 	        token = fp.read()
-        client = coscine.ApiClient(token)
+        client = coscine.CoscineClient(token)
 
         # Download the data
         resource = client.project("$project_name").resource("$resource_name")
@@ -367,7 +374,7 @@ process RUN_DIAGNOSTICS {
 
     input:
     path script
-    tuple val(key), path(mcmc_idata)
+    tuple val(key), path(mcmc_idata), val(params_yaml)
     val outdir
 
     output:
@@ -376,7 +383,8 @@ process RUN_DIAGNOSTICS {
     script:
     """
     #!/bin/bash
-    python3 ${script} --idata-path ${mcmc_idata} --output-dir "${outdir}"
+    echo "${params_yaml}" > _params.yml
+    python3 ${script} --idata-path ${mcmc_idata} --output-dir "${outdir}" --config _params.yml
     """
 }
 
