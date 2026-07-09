@@ -1,0 +1,15 @@
+[33mNextflow 26.04.4 is available - Please consider updating your version to it(B[m
+[WARN] WARN: Access to undefined parameter `containerFor` -- Initialise it to a default value eg. `params.containerFor = some_value`
+[WARN] WARN: There's no process matching config selector: GENERATE_EXPERIMENTS
+[PIPELINE] main.nf | profile=local
+[WORKDIR] /home/ajc/Work/Projects/bpc_hemolysis/.work
+[PROCESS 28/28cffd] bpc_hemolysis:PULL_DATA_COSCINE
+[PROCESS 47/a3a030] bpc_hemolysis:PREPROCESS_DATA
+[PROCESS 8c/4121f2] bpc_hemolysis:SETUP_UM_IPC
+[PROCESS 38/94aa4e] bpc_hemolysis:SERVE_MODEL_PY (1)
+[PROCESS db/069e67] bpc_hemolysis:MCMC_CALIBRATION (1)
+[PROCESS a0/f7efe3] bpc_hemolysis:RUN_DIAGNOSTICS (1)
+[PROCESS 81/5681ef] bpc_hemolysis:BUNDLE_OUTPUTS (1)
+[PROCESS 93/7df7ee] bpc_hemolysis:GENERATE_REPORT (1)
+
+[SUCCESS] completed=8 failed=0 cached=0
