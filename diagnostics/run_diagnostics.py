@@ -5,7 +5,9 @@ import matplotlib.pyplot as plt
 import arviz as az
 import corner
 import numpy as np
+import pandas as pd
 import yaml
+from scipy.signal import find_peaks
 
 # az.kde/az.autocorr keep changing shape across arviz releases; the underlying
 # array_stats module is more stable.
@@ -33,6 +35,16 @@ N_BINS = 36
 MAX_AUTOCORR_LAG = 100
 RHAT_THRESHOLD = 1.01
 SAVE_DPI = 200
+
+# Matches corner's default show_titles quantiles ([0.16, 0.5, 0.84], i.e. the
+# median with a ~68% interval) -- kept as one constant so the posterior
+# summary table and the corner plot titles never drift apart.
+SUMMARY_QUANTILES = [0.16, 0.5, 0.84]
+
+# A KDE peak counts as a separate mode only if it stands at least this
+# fraction of the tallest peak's height above its neighboring valleys --
+# filters out small wiggles from KDE estimation noise, not real bimodality.
+MODALITY_PROMINENCE_FRAC = 0.05
 
 TRACE_COLOR = '#8cc5e3'
 
@@ -68,7 +80,7 @@ def run_quantitative_diagnostics(idata, param_labels, output_dir=None):
     """
     param_names = list(param_labels)
     summary = az.summary(idata, var_names=param_names, round_to=None)
-    display = summary[["mean", "sd", "ess_bulk", "ess_tail", "r_hat"]].copy()
+    display = summary[["ess_bulk", "ess_tail", "r_hat"]].copy()
     display["converged"] = display["r_hat"].apply(
         lambda x: "PASS" if x <= RHAT_THRESHOLD else "FAIL"
     )
@@ -81,6 +93,53 @@ def run_quantitative_diagnostics(idata, param_labels, output_dir=None):
     out.mkdir(parents=True, exist_ok=True)
     csv_path = out / "convergence_diagnostics.csv"
     display.to_csv(csv_path, float_format="%.6g")
+
+
+def _count_modes(samples: np.ndarray) -> int:
+    """Number of KDE peaks with prominence at least MODALITY_PROMINENCE_FRAC
+    of the tallest peak -- small enough to catch genuine bimodality, large
+    enough to ignore KDE estimation noise."""
+    _grid, pdf, _bw = _array_stats.kde(samples)
+    peaks, _props = find_peaks(pdf, prominence=MODALITY_PROMINENCE_FRAC * pdf.max())
+    return max(1, len(peaks))
+
+
+def run_posterior_summary(idata, param_labels, output_dir=None):
+    """
+    Write a posterior summary CSV: median, the same 68% quantile interval
+    corner's plot titles use (SUMMARY_QUANTILES), and a KDE-based modality
+    check -- kept in its own table (rather than folded into
+    convergence_diagnostics.csv) so it reads as "what the posterior looks
+    like" next to the priors table, separate from convergence diagnostics.
+
+    Parameters
+    ----------
+    idata : arviz.InferenceData
+    param_labels : dict
+        Maps parameter names to display labels used as the CSV row index.
+    output_dir : str or Path, optional
+        Directory for posterior_summary.csv. Defaults to current directory.
+    """
+    param_names = list(param_labels)
+    samples = az.extract(idata, var_names=param_names, combined=True)
+
+    rows = []
+    for param in param_names:
+        vals = samples[param].values
+        q16, median, q84 = np.quantile(vals, SUMMARY_QUANTILES)
+        n_modes = _count_modes(vals)
+        rows.append({
+            "parameter": param_labels[param],
+            "median": median,
+            "q16": q16,
+            "q84": q84,
+            "modality": "Unimodal" if n_modes <= 1 else "Multimodal",
+        })
+
+    out = Path(output_dir) if output_dir is not None else Path(".")
+    out.mkdir(parents=True, exist_ok=True)
+    csv_path = out / "posterior_summary.csv"
+    pd.DataFrame(rows).set_index("parameter").to_csv(csv_path, float_format="%.6g")
 
 
 def _make_subplot_grid(n_params, n_cols, subplot_size):
@@ -220,9 +279,9 @@ def run_diagnostics(idata, param_labels=None, output_dir=None, nburn=0):
         Maps parameter names to display labels.
         Example: mu and xi
     output_dir : str or Path, optional
-        Directory to save figures as PNG. Filenames are fixed:
+        Directory to save figures/tables. Filenames are fixed:
         trace.png, trace_postburnin.png, autocorr.png, posteriors.png,
-        corner_plot.png.
+        corner_plot.png, convergence_diagnostics.csv, posterior_summary.csv.
     nburn : int, optional
         Leading draws discarded as burn-in for the quantitative summary
         (convergence_diagnostics.csv) and for trace_postburnin.png's KDE
@@ -243,6 +302,7 @@ def run_diagnostics(idata, param_labels=None, output_dir=None, nburn=0):
     _plot_corner(post_burnin, param_labels, out)
 
     run_quantitative_diagnostics(post_burnin, param_labels, out)
+    run_posterior_summary(post_burnin, param_labels, out)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run MCMC diagnostics on a NetCDF inference data file.")

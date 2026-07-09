@@ -54,7 +54,7 @@ def load_chain(idata_path: Path, params: list[str]) -> np.ndarray:
 
 
 def compute_corner_ranges(chain: np.ndarray, nburn: int) -> list[tuple]:
-    """Match report/mcmc's corner_plot.png axis limits: mcmc/calibrate_emcee.py
+    """Match diagnostics' corner_plot.png axis limits: diagnostics/run_diagnostics.py
     calls corner.corner(trace) with no explicit `range`, and corner's default
     is exactly (x.min(), x.max()) of whatever samples it's given -- here, the
     post-burn-in trace. Using this (instead of the full prior bounds) as a
@@ -121,7 +121,7 @@ def render_trace_frame(chain: np.ndarray, t: int, params: list[str], ranges, kde
             chain_vals = chain[c, :t, i]
             ax_trace.plot(np.arange(t), chain_vals, color=color, alpha=CHAIN_ALPHA, linewidth=0.8)
             if t >= MIN_DRAWS_FOR_KDE:
-                grid, pdf = az.kde(chain_vals)
+                grid, pdf, _bw = az.kde(chain_vals)
                 ax_kde.plot(grid, pdf, color=color, alpha=CHAIN_ALPHA, linewidth=1.0)
 
         ax_trace.set_xlim(0, ndraws_total)

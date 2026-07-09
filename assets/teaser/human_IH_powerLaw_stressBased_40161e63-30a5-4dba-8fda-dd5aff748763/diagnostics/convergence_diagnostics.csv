@@ -1,0 +1,5 @@
+parameter,ess_bulk,ess_tail,r_hat,converged
+A,5000,9300,1,PASS
+alpha,5000,9400,1,PASS
+beta,5100,9700,1,PASS
+sigma,5400,11000,1,PASS

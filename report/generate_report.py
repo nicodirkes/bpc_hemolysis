@@ -20,11 +20,11 @@ HAIRLINE      = (225, 224, 217)
 BASELINE      = (195, 194, 183)
 
 # Fixed status palette (good/warning/critical) -- reserved meaning, never reused
-# for series identity. Used only on the word/value itself (bold text), never as
-# a cell fill -- text is the label, so no separate icon/background is needed.
-STATUS_EXCELLENT = (12, 163, 12)    # #0ca30c "good"
-STATUS_GOOD      = (250, 178, 25)   # #fab219 "warning"
-STATUS_POOR      = (208, 59, 59)    # #d03b3b "critical"
+# for series identity. Muted rather than saturated so the hero color bars read
+# as a calm strip of color, not an alarm.
+STATUS_EXCELLENT = (58, 140, 87)    # #3a8c57 "good"
+STATUS_GOOD      = (200, 184, 55)   # #c8b837 "warning" -- hue pushed toward true yellow (was reading as gold/brown)
+STATUS_POOR      = (185, 74, 74)    # #b94a4a "critical"
 
 PAGE_MARGIN_MM = 15
 FONT = "Helvetica"
@@ -44,20 +44,37 @@ def parse_params(params_path: Path) -> dict:
         return yaml.safe_load(f)
 
 
+# Shared quality rank, worst to best -- lets R-hat and ESS (which use different
+# middle-tier wording) be combined into one per-parameter verdict by rank alone.
+RANK_POOR, RANK_MID, RANK_EXCELLENT = 0, 1, 2
+UNIFIED_QUALITY = {
+    RANK_EXCELLENT: ("Excellent", STATUS_EXCELLENT),
+    RANK_MID:       ("Good",      STATUS_GOOD),
+    RANK_POOR:      ("Poor",      STATUS_POOR),
+}
+
+
 def rhat_label(value: float) -> tuple:
     if value < RHAT_EXCELLENT:
-        return "Excellent", STATUS_EXCELLENT
+        return "Excellent", STATUS_EXCELLENT, RANK_EXCELLENT
     elif value < RHAT_GOOD:
-        return "Good", STATUS_GOOD
-    return "Poor", STATUS_POOR
+        return "Good", STATUS_GOOD, RANK_MID
+    return "Poor", STATUS_POOR, RANK_POOR
 
 
 def ess_label(value: float) -> tuple:
     if value > ESS_EXCELLENT:
-        return "Excellent", STATUS_EXCELLENT
+        return "Excellent", STATUS_EXCELLENT, RANK_EXCELLENT
     elif value > ESS_ACCEPTABLE:
-        return "Acceptable", STATUS_GOOD
-    return "Poor", STATUS_POOR
+        return "Acceptable", STATUS_GOOD, RANK_MID
+    return "Poor", STATUS_POOR, RANK_POOR
+
+
+def mode_rank(ranks: list) -> int:
+    """Most common rank; ties broken toward the better (higher) rank."""
+    counts = {r: ranks.count(r) for r in set(ranks)}
+    best_count = max(counts.values())
+    return max(r for r, c in counts.items() if c == best_count)
 
 
 class MCMCReport(FPDF):
@@ -100,7 +117,7 @@ class MCMCReport(FPDF):
 
     def subsection_title(self, text: str):
         self.set_font(FONT, "B", 10)
-        self.set_text_color(*INK_MUTED)
+        self.set_text_color(*INK_SECONDARY)
         self.cell(0, 6, text.upper(), new_x="LMARGIN", new_y="NEXT")
         self.ln(1)
         self.set_text_color(*INK_PRIMARY)
@@ -156,6 +173,14 @@ def draw_hairline_table(pdf: MCMCReport, headers: list, col_widths: list, rows: 
     pdf.ln(3)
 
 
+def draw_segment_bar(pdf: MCMCReport, x: float, y: float, w: float, h: float, colors: list):
+    """One equal-width filled rect per entry in `colors`, drawn left to right in order."""
+    seg_w = w / len(colors)
+    for i, color in enumerate(colors):
+        pdf.set_fill_color(*color)
+        pdf.rect(x + i * seg_w, y, seg_w, h, style="F")
+
+
 def add_hero(pdf: MCMCReport, cfg: dict, diag_csv_path: Path, generated_at: str, session_id: str):
     pdf.add_page()
 
@@ -174,24 +199,46 @@ def add_hero(pdf: MCMCReport, cfg: dict, diag_csv_path: Path, generated_at: str,
     pdf.ln(6)
 
     df = pd.read_csv(diag_csv_path)
+
+    # Per-parameter verdicts, in table row order -- these feed both the
+    # headline (worst-case, or mode for Quality) and each tile's color bar,
+    # which shows the per-parameter breakdown behind that headline.
+    rhat_colors, ess_colors, combined_colors, combined_ranks = [], [], [], []
+    for _, row in df.iterrows():
+        _, rhat_color, rhat_rank = rhat_label(float(row["r_hat"]))
+        _, ess_bulk_color, ess_bulk_rank = ess_label(float(row["ess_bulk"]))
+        _, ess_tail_color, ess_tail_rank = ess_label(float(row["ess_tail"]))
+        ess_rank = min(ess_bulk_rank, ess_tail_rank)
+        ess_color = ess_bulk_color if ess_bulk_rank <= ess_tail_rank else ess_tail_color
+
+        rhat_colors.append(rhat_color)
+        ess_colors.append(ess_color)
+
+        combined_rank = min(rhat_rank, ess_rank)
+        combined_ranks.append(combined_rank)
+        combined_colors.append(UNIFIED_QUALITY[combined_rank][1])
+
     worst_rhat = float(df["r_hat"].max())
     min_ess = float(df[["ess_bulk", "ess_tail"]].min().min())
+    _, rhat_color, _ = rhat_label(worst_rhat)
+    _, ess_color, _  = ess_label(min_ess)
 
-    rhat_text, rhat_color = rhat_label(worst_rhat)
-    ess_text,  ess_color  = ess_label(min_ess)
+    # Quality headline is the most common per-parameter verdict (ties broken
+    # toward the better rank), not the worst case -- Worst R-hat and Min ESS
+    # already surface the bottleneck, so Quality reads as "what's typical".
+    quality_text, quality_color = UNIFIED_QUALITY[mode_rank(combined_ranks)]
 
-    # Overall verdict uses the same worst-case quality word as the table's
-    # per-parameter R-hat column, rather than a separate PASS/FAIL threshold --
-    # one consistent vocabulary instead of a binary judgment on the same number.
     tiles = [
-        ("Quality",     rhat_text, rhat_color),
-        ("Worst R-hat", f"{worst_rhat:.2f}", rhat_color),
-        ("Min ESS",     f"{min_ess:.0f}",    ess_color),
+        ("Quality",     quality_text,         quality_color, combined_colors),
+        ("Worst R-hat", f"{worst_rhat:.2f}",  rhat_color,    rhat_colors),
+        ("Min ESS",     f"{min_ess:.0f}",     ess_color,     ess_colors),
     ]
     content_w = pdf.w - 2 * PAGE_MARGIN_MM
     tile_w = content_w / len(tiles)
+    bar_w = tile_w - 6
+    bar_h = 2.2
     y0 = pdf.get_y()
-    for i, (label, value, color) in enumerate(tiles):
+    for i, (label, value, color, colors) in enumerate(tiles):
         x = PAGE_MARGIN_MM + i * tile_w
         pdf.set_xy(x, y0)
         pdf.set_font(FONT, "B", 20)
@@ -201,8 +248,9 @@ def add_hero(pdf: MCMCReport, cfg: dict, diag_csv_path: Path, generated_at: str,
         pdf.set_font(FONT, "", 8)
         pdf.set_text_color(*INK_MUTED)
         pdf.cell(tile_w, 5, label.upper(), align="L")
+        draw_segment_bar(pdf, x, y0 + 15.5, bar_w, bar_h, colors)
 
-    pdf.set_xy(PAGE_MARGIN_MM, y0 + 18)
+    pdf.set_xy(PAGE_MARGIN_MM, y0 + 21)
     pdf.set_text_color(*INK_PRIMARY)
     pdf.set_draw_color(*HAIRLINE)
     pdf.set_line_width(0.2)
@@ -211,7 +259,30 @@ def add_hero(pdf: MCMCReport, cfg: dict, diag_csv_path: Path, generated_at: str,
     pdf.set_y(y + 6)
 
 
-def add_run_info(pdf: MCMCReport, cfg: dict):
+def add_posterior_summary_table(pdf: MCMCReport, csv_path: Path):
+    df = pd.read_csv(csv_path)
+
+    headers = ["Parameter", "Median (68% CI)", "Modality"]
+    col_widths = [45, 80, 55]
+
+    rows = []
+    for _, row in df.iterrows():
+        median = float(row["median"])
+        q16, q84 = float(row["q16"]), float(row["q84"])
+        modality = str(row["modality"])
+        modality_color = STATUS_EXCELLENT if modality == "Unimodal" else STATUS_GOOD
+        rows.append([
+            (str(row["parameter"]), "L", None, True),
+            # Same +/- form as the corner plot's per-panel titles, at a fixed
+            # decimal count so the column reads as aligned rather than ragged.
+            (f"{median:.4f} (+{q84 - median:.4f} / -{median - q16:.4f})", "R", None, False),
+            (modality, "C", modality_color, True),
+        ])
+
+    draw_hairline_table(pdf, headers, col_widths, rows)
+
+
+def add_run_info(pdf: MCMCReport, cfg: dict, diag_dir: Path):
     pdf.section_title("Run Configuration")
 
     cal = cfg["calibration"]
@@ -238,7 +309,7 @@ def add_run_info(pdf: MCMCReport, cfg: dict):
         pdf.cell(0, row_h, str(value), align="L", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(5)
 
-    pdf.subsection_title("Calibrated Parameters")
+    pdf.subsection_title("Priors")
     headers = ["Parameter", "Distribution", "Bound / Location", "Bound / Scale"]
     col_widths = [45, 45, 45, 45]
     rows = []
@@ -257,30 +328,35 @@ def add_run_info(pdf: MCMCReport, cfg: dict):
         ])
     draw_hairline_table(pdf, headers, col_widths, rows)
 
+    pdf.subsection_title("Posterior Summary")
+    add_posterior_summary_table(pdf, diag_dir / "posterior_summary.csv")
 
-def add_diagnostics_section(pdf: MCMCReport, bundle_dir: Path):
+
+def add_diagnostics_section(pdf: MCMCReport, bundle_dir: Path, cfg: dict):
     diag_dir = bundle_dir / "diagnostics"
+    nwalkers = cfg["calibration"]["nwalkers"]
 
     pdf.add_page()
     pdf.section_title("MCMC Diagnostics")
 
-    pdf.embed_image(img_path=bundle_dir / "corner_plot.png",
-                     caption="Figure 1 - Pairwise posterior corner plot.",
+    pdf.embed_image(img_path=diag_dir / "corner_plot.png",
+                     caption="Figure 1 - Pairwise posterior corner plot (post burn-in).",
                      w_mm=150)
 
     pdf.set_font(FONT, "I", 9)
     pdf.set_text_color(*INK_SECONDARY)
-    pdf.cell(0, 5, "Table 1 - Convergence diagnostics (post burn-in).", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 5, f"Table 1 - Convergence diagnostics (post burn-in, {nwalkers} walkers).",
+             new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(*INK_PRIMARY)
     pdf.ln(2)
     add_diagnostics_table(pdf, diag_dir / "convergence_diagnostics.csv")
     pdf.body_text(
-        "R-hat thresholds: < 1.01 = Excellent, 1.01-1.10 = Good, >= 1.10 = Poor.\n"
-        "ESS thresholds: > 400 = Excellent, 101-400 = Acceptable, <= 100 = Poor."
+        "R-hat thresholds: < 1.01 = Excellent, 1.01-1.10 = Good, >= 1.10 = Poor (Vehtari et al., 2021).\n"
+        "ESS thresholds: > 400 = Excellent, 101-400 = Acceptable, <= 100 = Poor (Vehtari et al., 2021)."
     )
 
-    pdf.embed_image(img_path=diag_dir / "trace_postburnin.png",
-                     caption="Figure 2 - Trace plots. Left: post burn-in posteriors; right: sample traces per walker (burn-in marked).",
+    pdf.embed_image(img_path=diag_dir / "trace.png",
+                     caption="Figure 2 - Trace plots. Left: posterior density (full chain); right: sample traces per walker.",
                      w_mm=160)
     pdf.embed_image(img_path=diag_dir / "autocorr.png",
                      caption="Figure 3 - Autocorrelation by lag for each parameter.",
@@ -290,8 +366,8 @@ def add_diagnostics_section(pdf: MCMCReport, bundle_dir: Path):
 def add_diagnostics_table(pdf: MCMCReport, csv_path: Path):
     df = pd.read_csv(csv_path)
 
-    headers = ["Parameter", "Mean", "SD", "ESS bulk", "ESS tail", "R-hat", "ESS quality", "R-hat quality"]
-    col_widths = [25, 20, 20, 21, 21, 20, 26, 27]
+    headers = ["Parameter", "ESS bulk", "ESS tail", "R-hat", "ESS quality", "R-hat quality"]
+    col_widths = [30, 28, 28, 25, 32, 32]
 
     rows = []
     for _, row in df.iterrows():
@@ -299,9 +375,9 @@ def add_diagnostics_table(pdf: MCMCReport, csv_path: Path):
         ess_tail = float(row["ess_tail"])
         rhat     = float(row["r_hat"])
 
-        ess_bulk_text, ess_bulk_status = ess_label(ess_bulk)
-        ess_tail_text, ess_tail_status = ess_label(ess_tail)
-        rhat_text,     rhat_status     = rhat_label(rhat)
+        ess_bulk_text, ess_bulk_status, _ = ess_label(ess_bulk)
+        ess_tail_text, ess_tail_status, _ = ess_label(ess_tail)
+        rhat_text,     rhat_status,     _ = rhat_label(rhat)
 
         # ESS quality uses the worse of bulk/tail
         worse_is_bulk = ess_bulk <= ess_tail
@@ -310,8 +386,6 @@ def add_diagnostics_table(pdf: MCMCReport, csv_path: Path):
 
         rows.append([
             (str(row["parameter"]),        "L", None, False),
-            (f"{float(row['mean']):.4f}",  "R", None, False),
-            (f"{float(row['sd']):.4f}",    "R", None, False),
             (f"{ess_bulk:.0f}",            "R", None, False),
             (f"{ess_tail:.0f}",            "R", None, False),
             (f"{rhat:.2f}",                "R", None, False),
@@ -333,10 +407,12 @@ def main():
     session_id = bundle_dir.name.split("_")[-1]
     running_title = f"BPC_Hemolysis // {cfg['species'].capitalize()} // {cfg['model']['name']}"
 
+    diag_dir = bundle_dir / "diagnostics"
+
     pdf = MCMCReport(title=running_title, meta=generated_at)
-    add_hero(pdf, cfg, bundle_dir / "diagnostics" / "convergence_diagnostics.csv", generated_at, session_id)
-    add_run_info(pdf, cfg)
-    add_diagnostics_section(pdf, bundle_dir)
+    add_hero(pdf, cfg, diag_dir / "convergence_diagnostics.csv", generated_at, session_id)
+    add_run_info(pdf, cfg, diag_dir)
+    add_diagnostics_section(pdf, bundle_dir, cfg)
 
     pdf.output(str(output_path))
     print(f"Report written to: {output_path}")
