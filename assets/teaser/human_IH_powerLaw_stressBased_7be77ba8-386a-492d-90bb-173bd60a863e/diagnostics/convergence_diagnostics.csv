@@ -1,0 +1,5 @@
+parameter,mean,sd,ess_bulk,ess_tail,r_hat,converged
+A,11,0.95,5300,10000,1,PASS
+alpha,0.9,0.17,5300,10000,1,PASS
+beta,0.22,0.073,4400,9600,1,PASS
+sigma,0.091,0.0078,5400,10000,1,PASS

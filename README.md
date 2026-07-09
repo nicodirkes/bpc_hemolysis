@@ -1,5 +1,9 @@
 # Bayesian Parameter Calibration in Blood Hemolysis Modeling
 
+<p align="left">
+  <img src="assets/teaser/calibration_evolution.gif" alt="Corner plot, walker traces and KDEs converging over the calibration" width="900">
+</p>
+
 This computational study calibrates the parameters of a computational
 hemolysis model against experimental data. Hemolysis models predict the fraction
 of red blood cells damaged when blood is subjected to mechanical load, and are
@@ -13,6 +17,10 @@ parameters, so that experimental scatter and model uncertainty are carried
 through into the estimates. Inference is performed with Markov Chain Monte Carlo,
 and the same setup can be applied to individual datasets or swept across blood
 sources and competing model formulations.
+
+<p align="left">
+  <img src="assets/teaser/report_stack.png" alt="Generated calibration report" width="640">
+</p>
 
 This computational study was built with the
 [SHOWME.how](https://mbd-rwth.github.io/showmehow/) approach.
@@ -131,7 +139,7 @@ This computational study was built with the
      (`linux-64` | `linux-aarch64` | `osx-64` | `osx-arm64` | `win-64`); override if needed.
    - A unit with no lock for the platform (e.g. `model`/`mcmc`, whose pip-only
      `umbridge` can't survive an explicit lock) falls back to its `environment.yml`.
-   - `--condaEngine` is `micromamba` (default), `mamba`, or `conda`.
+   - `--condaEngine` is `conda` (default), `mamba`, or `micromamba`.
 
    Editing a `<unit>/environment.yml` triggers one CI pipeline (`conda-recipes.yml`):
    it re-locks conda-only units (or adds a micromamba `Dockerfile` to units that
@@ -157,12 +165,12 @@ Supporting units: `pull_data/` (fetch experimental data), `preprocessing/`
 (convert raw data to CSV), `experiments/` (generate the sweep), `deterministic_calibration/`
 (literature reference coefficients).
 
-<!-- TODO: add an example output figure (e.g. posterior distributions / trace plot from the generated report). -->
+
 
 ## Roadmap
 
 - [x] Add Conda lock files for reproducible environments.
-- [ ] Add CI automation.
+- [x] Add CI automation.
 - [x] Add Nextflow profiles (`local` / `cluster`) to switch the container engine
       between Docker and Apptainer.
 - [x] Publish the Julia forward model image to GHCR (multi-arch) and consume it
