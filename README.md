@@ -19,7 +19,9 @@ and the same setup can be applied to individual datasets or swept across blood
 sources and competing model formulations.
 
 <p align="left">
-  <img src="assets/teaser/report_stack.png" alt="Generated calibration report" width="640">
+  <a href="assets/teaser/human_IH_powerLaw_stressBased_7be77ba8-386a-492d-90bb-173bd60a863e/report.pdf">
+    <img src="assets/teaser/report_stack.png" alt="Generated calibration report" width="640">
+  </a>
 </p>
 
 This computational study was built with the
