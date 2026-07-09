@@ -23,7 +23,7 @@ BASELINE      = (195, 194, 183)
 # for series identity. Muted rather than saturated so the hero color bars read
 # as a calm strip of color, not an alarm.
 STATUS_EXCELLENT = (58, 140, 87)    # #3a8c57 "good"
-STATUS_GOOD      = (196, 145, 45)   # #c4912d "warning"
+STATUS_GOOD      = (200, 184, 55)   # #c8b837 "warning" -- hue pushed toward true yellow (was reading as gold/brown)
 STATUS_POOR      = (185, 74, 74)    # #b94a4a "critical"
 
 PAGE_MARGIN_MM = 15
@@ -117,7 +117,7 @@ class MCMCReport(FPDF):
 
     def subsection_title(self, text: str):
         self.set_font(FONT, "B", 10)
-        self.set_text_color(*INK_MUTED)
+        self.set_text_color(*INK_SECONDARY)
         self.cell(0, 6, text.upper(), new_x="LMARGIN", new_y="NEXT")
         self.ln(1)
         self.set_text_color(*INK_PRIMARY)
@@ -259,7 +259,30 @@ def add_hero(pdf: MCMCReport, cfg: dict, diag_csv_path: Path, generated_at: str,
     pdf.set_y(y + 6)
 
 
-def add_run_info(pdf: MCMCReport, cfg: dict):
+def add_posterior_summary_table(pdf: MCMCReport, csv_path: Path):
+    df = pd.read_csv(csv_path)
+
+    headers = ["Parameter", "Median (68% CI)", "Modality"]
+    col_widths = [45, 80, 55]
+
+    rows = []
+    for _, row in df.iterrows():
+        median = float(row["median"])
+        q16, q84 = float(row["q16"]), float(row["q84"])
+        modality = str(row["modality"])
+        modality_color = STATUS_EXCELLENT if modality == "Unimodal" else STATUS_GOOD
+        rows.append([
+            (str(row["parameter"]), "L", None, True),
+            # Same +/- form as the corner plot's per-panel titles, at a fixed
+            # decimal count so the column reads as aligned rather than ragged.
+            (f"{median:.4f} (+{q84 - median:.4f} / -{median - q16:.4f})", "R", None, False),
+            (modality, "C", modality_color, True),
+        ])
+
+    draw_hairline_table(pdf, headers, col_widths, rows)
+
+
+def add_run_info(pdf: MCMCReport, cfg: dict, diag_dir: Path):
     pdf.section_title("Run Configuration")
 
     cal = cfg["calibration"]
@@ -286,7 +309,7 @@ def add_run_info(pdf: MCMCReport, cfg: dict):
         pdf.cell(0, row_h, str(value), align="L", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(5)
 
-    pdf.subsection_title("Calibrated Parameters")
+    pdf.subsection_title("Priors")
     headers = ["Parameter", "Distribution", "Bound / Location", "Bound / Scale"]
     col_widths = [45, 45, 45, 45]
     rows = []
@@ -305,6 +328,9 @@ def add_run_info(pdf: MCMCReport, cfg: dict):
         ])
     draw_hairline_table(pdf, headers, col_widths, rows)
 
+    pdf.subsection_title("Posterior Summary")
+    add_posterior_summary_table(pdf, diag_dir / "posterior_summary.csv")
+
 
 def add_diagnostics_section(pdf: MCMCReport, bundle_dir: Path, cfg: dict):
     diag_dir = bundle_dir / "diagnostics"
@@ -314,7 +340,7 @@ def add_diagnostics_section(pdf: MCMCReport, bundle_dir: Path, cfg: dict):
     pdf.section_title("MCMC Diagnostics")
 
     pdf.embed_image(img_path=diag_dir / "corner_plot.png",
-                     caption="Figure 1 - Pairwise posterior corner plot.",
+                     caption="Figure 1 - Pairwise posterior corner plot (post burn-in).",
                      w_mm=150)
 
     pdf.set_font(FONT, "I", 9)
@@ -340,8 +366,8 @@ def add_diagnostics_section(pdf: MCMCReport, bundle_dir: Path, cfg: dict):
 def add_diagnostics_table(pdf: MCMCReport, csv_path: Path):
     df = pd.read_csv(csv_path)
 
-    headers = ["Parameter", "Mean", "SD", "ESS bulk", "ESS tail", "R-hat", "ESS quality", "R-hat quality"]
-    col_widths = [25, 20, 20, 21, 21, 20, 26, 27]
+    headers = ["Parameter", "ESS bulk", "ESS tail", "R-hat", "ESS quality", "R-hat quality"]
+    col_widths = [30, 28, 28, 25, 32, 32]
 
     rows = []
     for _, row in df.iterrows():
@@ -360,8 +386,6 @@ def add_diagnostics_table(pdf: MCMCReport, csv_path: Path):
 
         rows.append([
             (str(row["parameter"]),        "L", None, False),
-            (f"{float(row['mean']):.4f}",  "R", None, False),
-            (f"{float(row['sd']):.4f}",    "R", None, False),
             (f"{ess_bulk:.0f}",            "R", None, False),
             (f"{ess_tail:.0f}",            "R", None, False),
             (f"{rhat:.2f}",                "R", None, False),
@@ -383,9 +407,11 @@ def main():
     session_id = bundle_dir.name.split("_")[-1]
     running_title = f"BPC_Hemolysis // {cfg['species'].capitalize()} // {cfg['model']['name']}"
 
+    diag_dir = bundle_dir / "diagnostics"
+
     pdf = MCMCReport(title=running_title, meta=generated_at)
-    add_hero(pdf, cfg, bundle_dir / "diagnostics" / "convergence_diagnostics.csv", generated_at, session_id)
-    add_run_info(pdf, cfg)
+    add_hero(pdf, cfg, diag_dir / "convergence_diagnostics.csv", generated_at, session_id)
+    add_run_info(pdf, cfg, diag_dir)
     add_diagnostics_section(pdf, bundle_dir, cfg)
 
     pdf.output(str(output_path))
