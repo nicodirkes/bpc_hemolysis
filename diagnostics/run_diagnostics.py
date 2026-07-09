@@ -3,8 +3,13 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import arviz as az
+import corner
 import numpy as np
 import yaml
+
+# az.kde/az.autocorr keep changing shape across arviz releases; the underlying
+# array_stats module is more stable.
+from arviz_stats.base.array import array_stats as _array_stats
 
 # ---------------------------------------------------------------------------
 # Global matplotlib defaults
@@ -30,7 +35,6 @@ RHAT_THRESHOLD = 1.01
 SAVE_DPI = 200
 
 TRACE_COLOR = '#8cc5e3'
-LABEL_BBOX = dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='none')
 
 # Validated 8-hue categorical palette (fixed order, CVD-safe adjacency) used to
 # color individual MCMC chains. Chain identity itself is meaningless (walker #17
@@ -48,9 +52,6 @@ CHAIN_ALPHA = 0.65
 TRACE_SUBPLOT_SIZE = (5.0, 2.5)
 AUTOCORR_SUBPLOT_SIZE = (3.5, 3.0)
 POSTERIOR_SUBPLOT_SIZE = (5.0, 4.0)
-
-
-
 
 
 def run_quantitative_diagnostics(idata, param_labels, output_dir=None):
@@ -101,12 +102,6 @@ def _save_figure(fig, output_dir, filename):
         fig.savefig(output_dir / filename, dpi=SAVE_DPI, bbox_inches='tight')
 
 
-def _add_panel_label(ax, idx):
-    ax.text(0.03, 0.95, f'({chr(97 + idx)})',
-            transform=ax.transAxes, fontsize=12,
-            verticalalignment='top', bbox=LABEL_BBOX)
-
-
 def _plot_trace(idata, param_labels, output_dir, nburn=0, filename='trace.png', mark_burnin=False):
     """
     Trace plot: left panel is the per-chain KDE, right panel is the raw draws.
@@ -135,7 +130,7 @@ def _plot_trace(idata, param_labels, output_dir, nburn=0, filename='trace.png', 
             color = CHAIN_COLORS[c % len(CHAIN_COLORS)]
             chain_vals = da.isel(chain=c).values
             kde_vals = chain_vals[nburn:] if mark_burnin else chain_vals
-            grid, pdf, _ = az.kde(kde_vals)
+            grid, pdf, _bw = _array_stats.kde(kde_vals)
             axes[i, 0].plot(grid, pdf, color=color, alpha=CHAIN_ALPHA, linewidth=1.0)
             axes[i, 1].plot(draws, chain_vals, color=color, alpha=CHAIN_ALPHA, linewidth=0.8)
 
@@ -143,7 +138,6 @@ def _plot_trace(idata, param_labels, output_dir, nburn=0, filename='trace.png', 
             axes[i, 1].axvline(nburn, color='dimgray', linestyle='--', linewidth=1.0, alpha=0.8)
 
         axes[i, 0].set_ylabel(label)
-        # _add_panel_label(axes[i, 0], i)
 
     if mark_burnin and nburn:
         axes[0, 1].text(nburn, axes[0, 1].get_ylim()[1], ' burn-in', color='dimgray',
@@ -152,6 +146,12 @@ def _plot_trace(idata, param_labels, output_dir, nburn=0, filename='trace.png', 
     axes[-1, 0].set_xlabel('Density')
     axes[-1, 1].set_xlabel('Draw')
     _save_figure(fig, output_dir, filename)
+
+
+def _autocorr(idata, param, max_lag):
+    """Per-chain autocorrelation averaged across chains."""
+    chains = idata.posterior[param].transpose('chain', 'draw').values
+    return np.mean([_array_stats.autocorr(c)[:max_lag + 1] for c in chains], axis=0)
 
 
 def _plot_autocorr(idata, param_labels, output_dir):
@@ -164,19 +164,16 @@ def _plot_autocorr(idata, param_labels, output_dir):
     # n_params isn't a multiple of n_cols, so that's not always the last row).
     last_idx_per_col = {idx % n_cols: idx for idx in range(n_params)}
 
-    autocorr = idata.posterior.azstats.autocorr(dim='draw')
     lags = np.arange(MAX_AUTOCORR_LAG + 1)
     for idx, (param, label) in enumerate(param_labels.items()):
         ax = axes_flat[idx]
-        # Average per-chain autocorrelation across chains (matches old combined=True).
-        acf = autocorr[param].isel(draw=slice(0, MAX_AUTOCORR_LAG + 1)).mean(dim='chain').values
+        acf = _autocorr(idata, param, MAX_AUTOCORR_LAG)
 
         ax.vlines(lags, 0, acf, color=TRACE_COLOR)
         ax.axhline(0, color='dimgray', linestyle='--', linewidth=0.5, alpha=0.5)
         ax.set_ylim(-0.1, 1.05)
         ax.text(0.5, 1.02, label, transform=ax.transAxes, fontsize=10,
                 verticalalignment='bottom', horizontalalignment='center')
-        # _add_panel_label(ax, idx)
         if idx % n_cols == 0:
             ax.set_ylabel('Autocorrelation')
         if idx == last_idx_per_col[idx % n_cols]:
@@ -197,9 +194,19 @@ def _plot_posteriors(idata, param_labels, output_dir):
                 bins=N_BINS, color=TRACE_COLOR, edgecolor='none')
         ax.set_xlabel(label)
         ax.set_ylabel('Frequency')
-        # _add_panel_label(ax, idx)
 
     _save_figure(fig, output_dir, 'posteriors.png')
+
+
+def _plot_corner(idata, param_labels, output_dir):
+    """Pairwise posterior corner plot (post burn-in draws only)."""
+    param_names = list(param_labels)
+    samples = az.extract(idata, var_names=param_names, combined=True)
+    data = np.column_stack([samples[p].values for p in param_names])
+    labels = [param_labels[p] for p in param_names]
+
+    fig = corner.corner(data, labels=labels, show_titles=True)
+    _save_figure(fig, output_dir, 'corner_plot.png')
 
 
 def run_diagnostics(idata, param_labels=None, output_dir=None, nburn=0):
@@ -214,7 +221,8 @@ def run_diagnostics(idata, param_labels=None, output_dir=None, nburn=0):
         Example: mu and xi
     output_dir : str or Path, optional
         Directory to save figures as PNG. Filenames are fixed:
-        trace.png, trace_postburnin.png, autocorr.png, posteriors.png.
+        trace.png, trace_postburnin.png, autocorr.png, posteriors.png,
+        corner_plot.png.
     nburn : int, optional
         Leading draws discarded as burn-in for the quantitative summary
         (convergence_diagnostics.csv) and for trace_postburnin.png's KDE
@@ -226,12 +234,14 @@ def run_diagnostics(idata, param_labels=None, output_dir=None, nburn=0):
 
     out = Path(output_dir) if output_dir is not None else None
 
+    post_burnin = idata.isel(draw=slice(nburn, None)) if nburn else idata
+
     _plot_trace(idata, param_labels, out)
     _plot_trace(idata, param_labels, out, nburn=nburn, filename='trace_postburnin.png', mark_burnin=True)
     _plot_autocorr(idata, param_labels, out)
     _plot_posteriors(idata, param_labels, out)
+    _plot_corner(post_burnin, param_labels, out)
 
-    post_burnin = idata.isel(draw=slice(nburn, None)) if nburn else idata
     run_quantitative_diagnostics(post_burnin, param_labels, out)
 
 if __name__ == "__main__":

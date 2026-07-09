@@ -5,8 +5,6 @@ import pandas as pd
 from scipy.stats import uniform, norm, truncnorm
 import umbridge
 import argparse
-import os
-import corner
 import arviz as az
 import contextlib
 from concurrent.futures import ThreadPoolExecutor
@@ -256,30 +254,14 @@ if __name__ == "__main__":
     log_posterior = LogPosterior(log_prior, log_likelihood)
 
     # Perform MCMC Calibration
-    trace, sampler, lnprob, samples = perform_mcmc(prior, log_posterior.eval,
+    trace, sampler, _, _ = perform_mcmc(prior, log_posterior.eval,
                 nwalkers=config["calibration"]["nwalkers"],
                 nburn=config["calibration"]["nburn"],
                 nsteps=config["calibration"]["nsteps"],
                 n_workers=config["calibration"].get("n_workers", 1),
                 pool_type=config["calibration"].get("pool_type", "serial"))
-    
-    
-    
+
     print(f"MCMC completed. Trace shape: {trace.shape}")
-
-    # Save results
-    data_basename, ext = os.path.splitext(args.data)
-    np.savez(f"mcmc_output.npz", 
-                trace=trace, samples=samples, lnprob=lnprob)
-    print(f"Results saved to mcmc_output.npz")
-
-    corner_plot = corner.corner(trace, labels=[prior["name"] for prior in config["calibration"]["priors"]], show_titles=True)
-    corner_plot.savefig(f"corner_plot")
-    print(f"Corner Plot saved to corner_plot.png")
-
-    # Save samples as .npy file
-    np.save(f"trace.npy", trace)
-    print(f"Samples saved to trace.npy")
 
     # Idata for Diagnostics with Arviz
     idata = az.from_emcee(sampler, var_names = prior.all_parameters)
