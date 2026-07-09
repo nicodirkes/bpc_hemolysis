@@ -125,22 +125,16 @@ workflow bpc_hemolysis {
 
     // Join workflow_meta with all keyed outputs — guaranteed per-experiment pairing into BUNDLE_OUTPUTS
     bundle_inputs = workflow_meta
-        .join(MCMC_CALIBRATION.out.mcmc_output)
-        .join(MCMC_CALIBRATION.out.mcmc_corner_plot)
-        .join(MCMC_CALIBRATION.out.mcmc_trace)
         .join(MCMC_CALIBRATION.out.mcmc_idata)
         .join(RUN_DIAGNOSTICS.out)
-    // bundle_inputs: [key, cfg, bundle_name, params_yaml, mcmc_output, mcmc_corner_plot, mcmc_trace, mcmc_idata, diagnostics]
+    // bundle_inputs: [key, cfg, bundle_name, params_yaml, mcmc_idata, diagnostics]
 
     BUNDLE_OUTPUTS(
         output_base_dir,
         bundle_inputs.map { row -> row[2] },
         bundle_inputs.map { row -> row[3] },
         bundle_inputs.map { row -> row[4] },
-        bundle_inputs.map { row -> row[5] },
-        bundle_inputs.map { row -> row[6] },
-        bundle_inputs.map { row -> row[7] },
-        bundle_inputs.map { row -> row[8] }
+        bundle_inputs.map { row -> row[5] }
     )
 
     GENERATE_REPORT(
@@ -344,9 +338,6 @@ process MCMC_CALIBRATION {
     tuple val(key), val(params_yaml), path(data), path(um_highway), val(n_workers)
 
     output:
-    tuple val(key), path("mcmc_output.npz"), emit: mcmc_output
-    tuple val(key), path("corner_plot.png"), emit: mcmc_corner_plot
-    tuple val(key), path("trace.npy"),       emit: mcmc_trace
     tuple val(key), path("mcmc_idata.nc"),   emit: mcmc_idata
 
     script:
@@ -394,9 +385,6 @@ process BUNDLE_OUTPUTS {
     val output_base_dir
     val bundle_name
     val params_yaml
-    path mcmc_output
-    path mcmc_corner_plot
-    path mcmc_trace
     path mcmc_idata
     path mcmc_diagnostics
 
@@ -411,9 +399,6 @@ process BUNDLE_OUTPUTS {
     mkdir "${bundle_name}"
 
     cp params.yml "${bundle_name}"
-    cp ${mcmc_output} "${bundle_name}/"
-    cp ${mcmc_corner_plot} "${bundle_name}/"
-    cp ${mcmc_trace} "${bundle_name}/"
     cp ${mcmc_idata} "${bundle_name}/"
     cp -r ${mcmc_diagnostics} "${bundle_name}/"
 

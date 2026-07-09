@@ -8,7 +8,6 @@ dependencies:
   - scipy
   - pandas
   - emcee
-  - corner
   - tqdm
   - arviz
   - h5py
