@@ -4,27 +4,7 @@
   <img src="assets/teaser/calibration_evolution.gif" alt="Corner plot, walker traces and KDEs converging over the calibration" width="900">
 </p>
 
-This computational study calibrates the parameters of a computational
-hemolysis model against experimental data. Hemolysis models predict the fraction
-of red blood cells damaged when blood is subjected to mechanical load, and are
-used to assess blood-handling medical devices such as ventricular assist devices.
-Such models expose empirical coefficients that must be identified from
-experiments before the model can be applied predictively.
-
-Here the coefficients are inferred within a Bayesian framework: rather than a
-single best fit, the calibration returns posterior distributions over the
-parameters, so that experimental scatter and model uncertainty are carried
-through into the estimates. Inference is performed with Markov Chain Monte Carlo,
-and the same setup can be applied to individual datasets or swept across blood
-sources and competing model formulations.
-
-<p align="left">
-  <a href="assets/teaser/human_IH_powerLaw_stressBased_40161e63-30a5-4dba-8fda-dd5aff748763/report.pdf">
-    <img src="assets/teaser/report_stack.png" alt="Generated calibration report" width="640">
-  </a>
-</p>
-
-This computational study was built with the
+This computational study was developed using
 [SHOWME.how](https://mbd-rwth.github.io/showmehow/) approach.
 
 <p align="left">
@@ -32,6 +12,30 @@ This computational study was built with the
   &nbsp;&nbsp;&nbsp;
   <img src="assets/logo_mbd_rgb.png" alt="MBD – RWTH Aachen University" height="64">
 </p>
+
+
+In this computational study, we calibrate the parameters of a computational
+hemolysis model against experimental data. Hemolysis models predict the fraction
+of red blood cells damaged when blood is subjected to mechanical stress, and are
+used to assess blood-handling medical devices such as ventricular assist devices.
+However, such models rely on empirical coefficients that must be identified from
+experimental data before the model can be applied predictively.
+
+Here the coefficients are inferred within a Bayesian framework: rather than a
+single best fit, the calibration returns posterior distributions over the
+parameters, so that both the experimental errors and model uncertainty are carried
+through into the estimates. Inference is performed with Markov Chain Monte Carlo,
+and the same setup can be applied to individual experimental data of different species
+and competing hemolysis model formulations.
+
+The report below, automatically generated after each calibration study, provides a run summary, calibrated parameters, and diagnostics.
+
+<p align="left">
+  <a href="assets/teaser/human_IH_powerLaw_stressBased_40161e63-30a5-4dba-8fda-dd5aff748763/report.pdf">
+    <img src="assets/teaser/report_stack.png" alt="Generated calibration report" width="640">
+  </a>
+</p>
+
 
 ## Components of the study
 
@@ -124,7 +128,7 @@ This computational study was built with the
    ```
 
 4. **Reproducible environments.** Each unit declares its environment in
-   `main.nf` (`conda "<unit>/environment.yml"`); how that is resolved is wired in
+   `main.nf` (`conda "<unit>/environment.yml"`); how that is resolved is managed in
    `nextflow.config` from flags. Each run picks, per unit, the first that applies:
 
    | Mode | Flag | What a unit uses |
