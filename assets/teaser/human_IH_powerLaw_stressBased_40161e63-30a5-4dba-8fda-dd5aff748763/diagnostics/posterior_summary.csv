@@ -1,0 +1,5 @@
+parameter,median,q16,q84,modality
+A,10.8733,10.0058,11.8728,Unimodal
+alpha,0.894168,0.735508,1.07564,Unimodal
+beta,0.214014,0.145456,0.289354,Unimodal
+sigma,0.0907837,0.0837735,0.0988071,Unimodal

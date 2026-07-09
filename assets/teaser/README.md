@@ -80,7 +80,7 @@ number of draws:
 
 - **left** (square): the joint corner plot (`corner`) over `A`, `alpha`, `beta`,
   with `show_titles=True` (median +/- quantiles, matching
-  `mcmc/calibrate_emcee.py`'s own call) and axis ranges fixed to the min/max of
+  `diagnostics/run_diagnostics.py`'s own call) and axis ranges fixed to the min/max of
   the *post-burn-in* trace -- corner's own default range when given no explicit
   one -- so the final frame lands close to the actual `corner_plot.png` the
   workflow produces.
@@ -116,5 +116,6 @@ python assets/teaser/scripts/make_calibration_evolution.py \
   -o assets/teaser/calibration_evolution.gif --n-frames 60
 ```
 
-Both scripts were run with the `mcmc` conda environment's Python (has `corner`,
-`arviz`, `Pillow`), independent of the pipeline's own conda envs.
+Both scripts were run with the `diagnostics` conda environment's Python (has
+`corner`, `arviz`, `Pillow`, `xarray`), independent of the pipeline's own
+conda envs.
