@@ -42,6 +42,40 @@ prior_library:
     uniform:
       lower_bound: 1.0e-7
       upper_bound: 3.0
+  # Inverse membrane relaxation time f1 = 1/tau of the strain-based RBC model,
+  # in 1/s. The literature range tau = 0.1-0.3 s is f1 = 3.3-10; these bounds
+  # widen that to tau = 0.02-2 s. Watch for a posterior that leans on the upper
+  # bound: the Ding exposure times do not resolve the relaxation timescale from
+  # above, so under this parameterization the bound, not the data, sets where
+  # the posterior sits. Prefer `tau` below for anything quoted.
+  f1:
+    uniform:
+      lower_bound: 0.5
+      upper_bound: 50.0
+    truncated_normal:
+      loc: 5.0
+      scale: 2.0
+      lower_bound: 0.5
+      upper_bound: 50.0
+
+  # The same relaxation timescale sampled as tau = 1/f1, in seconds. A rate has
+  # no natural upper bound, so under a uniform prior on f1 an unidentified
+  # timescale shows up as a pile-up against whichever bound was picked. In tau
+  # the stress-based limit (instantaneous deformation) is the finite endpoint
+  # tau -> 0, the literature band 0.1-0.3 s lies in the interior, and a
+  # posterior that spreads over the whole prior reads directly as "not resolved".
+  # This is the parameterization to quote; `f1` is kept for the direct
+  # comparison of the two.
+  tau:
+    uniform:
+      lower_bound: 0.005
+      upper_bound: 0.5
+    truncated_normal:
+      loc: 0.2
+      scale: 0.05
+      lower_bound: 0.005
+      upper_bound: 0.5
+
   # Constant term of the noise scale, in the units of the measurements (IH in %).
   sigma:
     uniform:
@@ -76,6 +110,8 @@ prior_configurations:
     beta: uniform
     h: uniform
     k: uniform
+    f1: uniform
+    tau: uniform
     sigma: uniform
     sigma_rel: uniform
   # Informative Gaussians centred on the literature fit, truncated to the same
@@ -84,6 +120,8 @@ prior_configurations:
     A: truncated_normal
     alpha: truncated_normal
     beta: truncated_normal
+    f1: truncated_normal
+    tau: truncated_normal
     sigma: truncated_normal
     sigma_rel: truncated_normal
 
@@ -96,7 +134,18 @@ model_definitions:
   IH_powerLaw_strainBased:
     parameters: [A, alpha, beta]
     control_variables: [shear_stress, exposure_time]
-    use_julia: true
+    use_julia: false
+  # Same model with the inverse membrane relaxation time calibrated instead of
+  # fixed at its literature value. Comparing the two on the same data is the
+  # test of whether the experiments resolve the relaxation timescale at all.
+  IH_powerLaw_strainBased_f1:
+    parameters: [A, alpha, beta, f1]
+    control_variables: [shear_stress, exposure_time]
+    use_julia: false
+  IH_powerLaw_strainBased_tau:
+    parameters: [A, alpha, beta, tau]
+    control_variables: [shear_stress, exposure_time]
+    use_julia: false
   IH_poreFormation_stressBased:
     parameters: [h, k]
     control_variables: [shear_stress, exposure_time]
@@ -104,7 +153,15 @@ model_definitions:
   IH_poreFormation_strainBased:
     parameters: [h, k]
     control_variables: [shear_stress, exposure_time]
-    use_julia: true
+    use_julia: false
+  IH_poreFormation_strainBased_f1:
+    parameters: [h, k, f1]
+    control_variables: [shear_stress, exposure_time]
+    use_julia: false
+  IH_poreFormation_strainBased_tau:
+    parameters: [h, k, tau]
+    control_variables: [shear_stress, exposure_time]
+    use_julia: false
 
 # Shared model server settings (applied to all experiments)
 model_server:

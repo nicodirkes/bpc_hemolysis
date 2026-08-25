@@ -1,6 +1,13 @@
 import DifferentialEquations as DE
 using QuadGK
 using HypergeometricFunctions
+using SpecialFunctions
+
+# Beyond this value of f1*t, 1 - exp(-f1*t) rounds to exactly 1.0 in double
+# precision and the hypergeometric form of the strain-based integral hits its
+# logarithmic pole. See IH_powerLaw_strainBased_analytical.
+const SATURATION_FT = 30.0
+const EULER_GAMMA = 0.5772156649015329
 
 
 function IH_powerLaw_stressBased(t_exp, sigma_exp, A, alpha, beta)
@@ -156,20 +163,29 @@ function IH_powerLaw_strainBased_quad_reformulated(t_exp, sigma_exp, A, alpha, b
 
 end
 
-function IH_powerLaw_strainBased_analytical(t_exp, sigma_exp, A, alpha, beta)
+function IH_powerLaw_strainBased_analytical(t_exp, sigma_exp, A, alpha, beta, f1=5.0)
     """
     Strain-based power law model for IH.
-    """
-    # Parameters
-    f1 = 5.0
 
+    f1 = 1/tau is the inverse membrane relaxation time. It defaults to the
+    literature value, and is passed in as a fifth parameter when the
+    calibration treats it as unknown.
+    """
     # Constants
     m = alpha/beta
     AA = 1.0 - exp(-f1*t_exp)
 
     try
-        # Compute G_int
-        G_int = (sigma_exp^m/f1) * (AA^(m+1.0)) / (m+1.0) * HypergeometricFunctions._₂F₁(1.0, m+1.0, m+2.0, AA)
+        # Beyond f1*t = SATURATION_FT the deformation has saturated to within
+        # double precision: AA rounds to exactly 1.0, where the hypergeometric
+        # has a logarithmic pole and returns Inf. The saturated branch is
+        # accurate to ~1e-13 there and tends smoothly to the stress-based limit
+        # G_int -> sigma^m * t as f1 -> infinity.
+        G_int = if f1 * t_exp > SATURATION_FT
+            sigma_exp^m * (t_exp - (SpecialFunctions.digamma(m + 1.0) + EULER_GAMMA) / f1)
+        else
+            (sigma_exp^m/f1) * (AA^(m+1.0)) / (m+1.0) * HypergeometricFunctions._₂F₁(1.0, m+1.0, m+2.0, AA)
+        end
         # Compute IH%
         return exp(-A) * G_int^beta * 100 # convert to percentage
     catch e
@@ -432,10 +448,14 @@ end
 
 
 
-function IH_poreFormation_strainBased_analytical_binomial(t_exp, sigma_exp, h, k)
+function IH_poreFormation_strainBased_analytical_binomial(t_exp, sigma_exp, h, k, f1=5.0)
+    """
+    Pore formation model on strain-based morphology.
 
-
-    f1=5.0
+    f1 = 1/tau is the inverse membrane relaxation time. It defaults to the
+    literature value, and is passed in as a third parameter when the
+    calibration treats it as unknown.
+    """
     mu=0.0035
 
     G_exp = sigma_exp / mu  # shear rate

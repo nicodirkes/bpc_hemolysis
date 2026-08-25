@@ -15,19 +15,49 @@ class IH_Model(umbridge.Model):
             self.model_func = np.vectorize(IH_powerLaw_stressBased)
         elif name == "IH_powerLaw_strainBased":
             self.params = 3
-            self.model_func = np.vectorize(IH_powerLaw_strainBased)
+            self.model_func = np.vectorize(
+                lambda t, s, A, alpha, beta: IH_powerLaw_strainBased(
+                    t, s, A, alpha, beta, analytical=True))
+        elif name == "IH_powerLaw_strainBased_f1":
+            # f1 = 1/tau, the inverse membrane relaxation time, calibrated
+            # instead of held at its literature value.
+            self.params = 4
+            self.model_func = np.vectorize(
+                lambda t, s, A, alpha, beta, f1: IH_powerLaw_strainBased(
+                    t, s, A, alpha, beta, f1, analytical=True))
+        elif name == "IH_powerLaw_strainBased_tau":
+            # Same free parameter as _f1, but sampled as the relaxation time
+            # tau = 1/f1. A rate has no natural upper bound, so a uniform prior
+            # on f1 makes "unidentified" look like a pile-up at whatever bound
+            # was chosen; in tau the stress-based limit is the finite endpoint
+            # tau -> 0, and the literature band 0.1-0.3 s sits in the interior.
+            self.params = 4
+            self.model_func = np.vectorize(
+                lambda t, s, A, alpha, beta, tau: IH_powerLaw_strainBased(
+                    t, s, A, alpha, beta, 1.0 / tau, analytical=True))
+        elif name == "IH_poreFormation_strainBased_tau":
+            self.params = 3
+            self.model_func = np.vectorize(
+                lambda t, s, h, k, tau: IH_poreFormation_strainBased(
+                    t, s, h, k, f1=1.0 / tau, analytical=True))
         elif name == "IH_poreFormation_stressBased":
             self.params = 2
             self.model_func = np.vectorize(IH_poreFormation_stressBased)
         elif name == "IH_poreFormation_strainBased":
             self.params = 2
-            self.model_func = np.vectorize(IH_poreFormation_strainBased)
+            self.model_func = np.vectorize(
+                lambda t, s, h, k: IH_poreFormation_strainBased(t, s, h, k, analytical=True))
+        elif name == "IH_poreFormation_strainBased_f1":
+            self.params = 3
+            self.model_func = np.vectorize(
+                lambda t, s, h, k, f1: IH_poreFormation_strainBased(
+                    t, s, h, k, f1=f1, analytical=True))
         elif name == "IH_poreFormation_strainBased_analytical":
             self.params = 2
             self.model_func = np.vectorize(
                 lambda t, s, h, k: IH_poreFormation_strainBased(t, s, h, k, analytical=True))
         else:
-            print("Requested Model is Not Implemented")
+            print(f"Requested Model '{name}' is Not Implemented")
             exit(1)
 
     @classmethod

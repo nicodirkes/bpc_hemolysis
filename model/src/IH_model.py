@@ -87,6 +87,17 @@ def integral_poreFormation_analytical(t_exp, G_exp, f=5.0):
 
     return integral
 
+# Beyond this value of f*t the deformation has saturated to within double
+# precision: 1 - exp(-f*t) rounds to exactly 1.0, where the hypergeometric form
+# of the antiderivative has a logarithmic pole and returns inf. The saturated
+# branch below is accurate to ~1e-13 there and, unlike the closed form, tends
+# smoothly to the stress-based limit I -> t as f -> infinity.
+SATURATION_FT = 30.0
+
+# Euler-Mascheroni constant, for the saturated branch of the integral.
+EULER_GAMMA = 0.5772156649015329
+
+
 def integrate_normalized_Geff(f, i, t0, t1):
     """
     Helper function to integrate (1 - exp(-f*t))^i from t0 to t1.
@@ -99,8 +110,18 @@ def integrate_normalized_Geff(f, i, t0, t1):
             integral += binom * (-1)**(k+1) / k * (np.exp(-k*f*t1) - np.exp(-k*f*t0))
         integral = integral / f + (t1 - t0)
     else:
-        from scipy.special import hyp2f1 # use hypergeometric function for non-integer i
-        antiderivative = lambda t: (1 - np.exp(-f*t))**(i+1) * hyp2f1(1, i+1, i+2, 1 - np.exp(-f*t)) / (f * (i+1))
+        from scipy.special import hyp2f1, digamma # use hypergeometric function for non-integer i
+
+        def antiderivative(t):
+            """Integral of (1 - exp(-f*s))^i from 0 to t."""
+            if f * t > SATURATION_FT:
+                # The integrand is 1 to machine precision over all but an
+                # initial transient, and the deficit converges:
+                #   int_0^inf [1 - (1-exp(-f s))^i] ds = (psi(i+1) + gamma) / f
+                return t - (digamma(i + 1.0) + EULER_GAMMA) / f
+            z = 1 - np.exp(-f*t)
+            return z**(i+1) * hyp2f1(1, i+1, i+2, z) / (f * (i+1))
+
         integral = antiderivative(t1) - antiderivative(t0)
     return integral
 
@@ -156,6 +177,10 @@ def get_input_data(fname):
 def get_IH_model(model_name, mu, f1, log, analytical):
     """
     Returns the appropriate IH model function based on the model name.
+
+    The `_f1` variants of the strain-based models take the inverse membrane
+    relaxation time f1 = 1/tau as a calibration parameter instead of the fixed
+    material property, so their parameter vector is one longer.
     """
     if model_name == 'IH_powerLaw_stressBased':
         def computeIH_powerLaw_stressBased(x, p):
@@ -169,12 +194,26 @@ def get_IH_model(model_name, mu, f1, log, analytical):
             assert len(x) == 2, "Input x should contain exactly rows: [t_exp, sigma]"
             return IH_powerLaw_strainBased(*x, *p, f1, log=log, analytical=analytical)
         return computeIH_powerLaw_strainBased
+    elif model_name == 'IH_powerLaw_strainBased_f1':
+        def computeIH_powerLaw_strainBased_f1(x, p):
+            assert len(p) == 4, "Parameters should contain exactly four values: [A, alpha, beta, f1]"
+            assert len(x) == 2, "Input x should contain exactly rows: [t_exp, sigma]"
+            *model_p, f1_p = p
+            return IH_powerLaw_strainBased(*x, *model_p, f1_p, log=log, analytical=analytical)
+        return computeIH_powerLaw_strainBased_f1
     elif model_name == 'IH_poreFormation_strainBased':
         def computeIH_poreFormation(x, p):
             assert len(p) == 2, "Parameters should contain exactly two values: [h, k]"
             assert len(x) == 2, "Input x should contain exactly rows: [t_exp, sigma]"
             return IH_poreFormation_strainBased(*x, *p, log=log, mu=mu, f1=f1, analytical=analytical)
         return computeIH_poreFormation
+    elif model_name == 'IH_poreFormation_strainBased_f1':
+        def computeIH_poreFormation_f1(x, p):
+            assert len(p) == 3, "Parameters should contain exactly three values: [h, k, f1]"
+            assert len(x) == 2, "Input x should contain exactly rows: [t_exp, sigma]"
+            *model_p, f1_p = p
+            return IH_poreFormation_strainBased(*x, *model_p, log=log, mu=mu, f1=f1_p, analytical=analytical)
+        return computeIH_poreFormation_f1
     elif model_name == 'IH_poreFormation_stressBased':
         def computeIH_poreFormation_stressBased(x, p):
             assert len(p) == 2, "Parameters should contain exactly two values: [h, k]"

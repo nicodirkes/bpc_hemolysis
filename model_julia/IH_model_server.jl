@@ -14,17 +14,36 @@ function get_IH_model(
         model_func = IH_powerLaw_stressBased
         parameters = 3
     elseif name=="IH_powerLaw_strainBased"
-        model_func = IH_powerLaw_strainBased_quad
+        model_func = IH_powerLaw_strainBased_analytical
+        parameters = 3
+    elseif name=="IH_powerLaw_strainBased_f1"
+        # The trailing f1 = 1/tau is calibrated rather than held at its
+        # literature value, so the model takes one parameter more.
+        model_func = IH_powerLaw_strainBased_analytical
+        parameters = 4
+    elseif name=="IH_powerLaw_strainBased_tau"
+        # As _f1, but the free parameter is the relaxation time tau = 1/f1.
+        model_func = (t_exp, sigma_exp, A, alpha, beta, tau) ->
+            IH_powerLaw_strainBased_analytical(t_exp, sigma_exp, A, alpha, beta, 1.0/tau)
+        parameters = 4
+    elseif name=="IH_poreFormation_strainBased_tau"
+        model_func = (t_exp, sigma_exp, h, k, tau) ->
+            IH_poreFormation_strainBased_analytical_binomial(t_exp, sigma_exp, h, k, 1.0/tau)
         parameters = 3
     elseif name=="IH_poreFormation_stressBased"
         model_func = IH_poreFormation_stressBased
         parameters = 2
     elseif name=="IH_poreFormation_strainBased"
-        model_func = IH_poreFormation_strainBased_quad
+        model_func = IH_poreFormation_strainBased_analytical_binomial
         parameters = 2
+    elseif name=="IH_poreFormation_strainBased_f1"
+        model_func = IH_poreFormation_strainBased_analytical_binomial
+        parameters = 3
     elseif name=="IH_poreFormation_strainBased_analytical"
         model_func = IH_poreFormation_strainBased_analytical_binomial
         parameters = 2
+    else
+        error("Requested model '$name' is not implemented")
     end
 
     # setup umbridge model
