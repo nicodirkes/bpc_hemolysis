@@ -3,6 +3,7 @@ import numpy as np
 import emcee
 import pandas as pd
 from scipy.stats import uniform, norm, truncnorm
+from scipy.stats import t as t_dist
 import umbridge
 import argparse
 import arviz as az
@@ -59,23 +60,29 @@ class Prior:
                 a, b = (lower_bound - loc) / scale, (upper_bound - loc) / scale
                 return truncnorm(a, b, loc, scale)
 
-    def __init__(self, config: dict, parameters: list, noise_parameters: list, calibrate_noise: bool = False):
+    def __init__(self, config: dict, parameters: list, noise_parameters: list):
+        """`noise_parameters` are the free parameters of the noise model (empty
+        for the heuristic guess); they are sampled after the model parameters,
+        so the two lists concatenate into the sampled parameter vector."""
         self.config = config
         self.parameters = parameters
         self.noise_parameters = noise_parameters
-        self.calibrate_noise = calibrate_noise
 
-        all_parameters = list(parameters)
-        if calibrate_noise:
-            all_parameters += noise_parameters
-        
+        all_parameters = list(parameters) + list(noise_parameters)
+
         prior_names = [p["name"] for p in config]
+        missing = [name for name in all_parameters if name not in prior_names]
+        if missing:
+            print(f"No prior defined for parameter(s): {', '.join(missing)}")
+            print("Aborting MCMC Calibration")
+            exit(1)
+
         self.distributions = [
             Prior._distributions_from_config(config[prior_names.index(name)])
             for name in all_parameters
         ]
 
-        self.all_parameters=all_parameters
+        self.all_parameters = all_parameters
 
 
 class LogPrior:
@@ -92,59 +99,161 @@ class LogPrior:
         return log_p
 
 
-class LogLikelihood:
-    def __init__(self, model, data: np.ndarray, n_noise_parameters: int = 1, calibrate_noise: bool = True, noise_sigma=None, distribution_type: str = "normal"):
-        if calibrate_noise and n_noise_parameters > 1:
-            print("Only 1 noise parameter supported for log_likelihood")
+class NoiseModel:
+    """
+    Observation-noise scale as a function of the model prediction.
+
+    The scale of observation i is
+
+        sigma_i = sigma + sigma_rel * IH_i ,
+
+    with only the terms named in `parameter_names` active for a given model:
+
+        heuristic : no free parameters -- sigma_i is the fixed `noise_sigma` guess
+        uniform   : sigma            -- constant scatter, independent of IH
+        linear    : sigma_rel        -- scatter proportional to IH
+        affine    : sigma, sigma_rel -- a floor plus an IH-proportional part
+
+    The free parameters are appended to the sampled parameter vector in the
+    order given by `parameter_names`, so the priors in the config must be
+    declared under those names.
+    """
+
+    PARAMETERS = {
+        "heuristic": [],
+        "uniform":   ["sigma"],
+        "linear":    ["sigma_rel"],
+        "affine":    ["sigma", "sigma_rel"],
+    }
+
+    def __init__(self, name: str, noise_sigma=None):
+        if name not in self.PARAMETERS:
+            print(f"Noise model '{name}' not supported. Choose from: {list(self.PARAMETERS)}")
             print("Aborting MCMC Calibration")
             exit(1)
-        if not calibrate_noise and noise_sigma is None:
-            print("log_likelihood requires `noise_sigma` to be provided")
+        if name == "heuristic" and noise_sigma is None:
+            print("The 'heuristic' noise model requires `noise_sigma` to be provided")
+            print("Aborting MCMC Calibration")
+            exit(1)
+
+        self.name = name
+        self.noise_sigma = noise_sigma
+        self.parameter_names = list(self.PARAMETERS[name])
+
+    @property
+    def n_parameters(self) -> int:
+        return len(self.parameter_names)
+
+    @property
+    def calibrated(self) -> bool:
+        return self.n_parameters > 0
+
+    def scale(self, noise_parameters, prediction_mean):
+        """Per-observation noise scale, broadcast to the shape of the prediction.
+        Returns None when the parameters put the scale outside its support."""
+        if self.name == "heuristic":
+            return np.full_like(prediction_mean, float(self.noise_sigma), dtype=float)
+
+        if any(p <= 0.0 for p in noise_parameters):
+            return None
+
+        values = dict(zip(self.parameter_names, noise_parameters))
+        sigma = np.zeros_like(prediction_mean, dtype=float)
+        if "sigma" in values:
+            sigma = sigma + values["sigma"]
+        if "sigma_rel" in values:
+            # The IH-proportional term uses the magnitude of the prediction so a
+            # transient negative excursion cannot flip the scale negative.
+            sigma = sigma + values["sigma_rel"] * np.abs(prediction_mean)
+
+        if not np.all(sigma > 0.0):
+            return None
+        return sigma
+
+
+class LogLikelihood:
+    """
+    Independent observation likelihood with a configurable distribution
+    (`normal` or `student_t`) and a configurable noise model (see NoiseModel).
+
+    Student's t has the same location and scale as the normal but heavier tails,
+    controlled by the degrees of freedom `dof`; it downweights outlying
+    measurements instead of letting them dominate the fit. dof -> inf recovers
+    the normal.
+    """
+
+    DISTRIBUTIONS = ("normal", "student_t")
+
+    def __init__(self, model, data: np.ndarray, noise_model: NoiseModel,
+                 distribution_type: str = "normal", dof: float = 4.0):
+        if distribution_type not in self.DISTRIBUTIONS:
+            print(f"Distribution type {distribution_type} not yet supported for log_likelihood")
+            print(f"Choose from: {list(self.DISTRIBUTIONS)}")
+            print("Aborting MCMC Calibration")
+            exit(1)
+        if distribution_type == "student_t" and dof <= 0.0:
+            print("Student's t likelihood requires `likelihood_dof` > 0")
             print("Aborting MCMC Calibration")
             exit(1)
 
         self.model = model
         self.data = data
-        self.n_noise_parameters = n_noise_parameters
-        self.calibrate_noise = calibrate_noise
-        self.noise_sigma = noise_sigma
+        self.noise_model = noise_model
         self.distribution_type = distribution_type
-        self.distribution_func = self._resolve_distribution_func()
+        self.dof = dof
 
-    def eval(self, parameters) -> float:
-        if self.calibrate_noise:
-            model_parameters = parameters[:-self.n_noise_parameters]
-            noise_sigma = np.asarray(parameters[-self.n_noise_parameters:])
-            if any(sigma <= 0.0 for sigma in noise_sigma):
-                return -np.inf
-        else:
-            model_parameters = parameters
-            noise_sigma = self.noise_sigma
+    def split_parameters(self, parameters):
+        """Split the sampled vector into (model parameters, noise parameters)."""
+        n_noise = self.noise_model.n_parameters
+        if n_noise == 0:
+            return list(parameters), []
+        return list(parameters[:-n_noise]), list(parameters[-n_noise:])
 
+    def predict(self, model_parameters):
+        """Model prediction for one parameter set, or None if it cannot be evaluated."""
         try:
             prediction_mean = np.asarray(self.model([[*model_parameters]]))
         except Exception:
-            return -np.inf
+            return None
 
         if prediction_mean.dtype == object or not np.isfinite(prediction_mean).all():
-            return -np.inf
+            return None
 
         if prediction_mean.shape != self.data.shape:
             raise ValueError("shape of model predictions does not match observations")
 
-        return self.distribution_func(prediction_mean, noise_sigma)
+        return prediction_mean
 
-    def _log_normal(self, prediction_mean, noise_sigma):
-        variance = noise_sigma * noise_sigma
-        return -0.5 * (np.log(2.0 * np.pi * variance) + ((self.data - prediction_mean) ** 2) / variance).sum()
+    def pointwise(self, parameters, prediction_mean=None):
+        """
+        Per-observation log density, flattened to one value per measurement.
+        Returns None when the parameters are outside the likelihood's support --
+        callers turn that into -inf. Passing an already computed
+        `prediction_mean` avoids a second model evaluation.
+        """
+        model_parameters, noise_parameters = self.split_parameters(parameters)
 
-    def _resolve_distribution_func(self):
+        if prediction_mean is None:
+            prediction_mean = self.predict(model_parameters)
+        if prediction_mean is None:
+            return None
+
+        sigma = self.noise_model.scale(noise_parameters, prediction_mean)
+        if sigma is None:
+            return None
+
         if self.distribution_type == "normal":
-            return self._log_normal
+            log_p = norm.logpdf(self.data, loc=prediction_mean, scale=sigma)
         else:
-            print(f"Distribution type {self.distribution_type} not yet supported for log_likelihood")
-            print("Aborting MCMC Calibration")
-            exit(1)
+            log_p = t_dist.logpdf(self.data, self.dof, loc=prediction_mean, scale=sigma)
+
+        return np.asarray(log_p).reshape(-1)
+
+    def eval(self, parameters) -> float:
+        log_p = self.pointwise(parameters)
+        if log_p is None or not np.isfinite(log_p).all():
+            return -np.inf
+        return float(log_p.sum())
 
 
 class LogPosterior:
@@ -203,6 +312,79 @@ def perform_mcmc(prior, log_posterior, nwalkers=50, nburn=2500, nsteps=5000, n_w
 
     return trace, sampler, lnprob, samples
 
+DEFAULT_NOISE_MODEL = "uniform"
+DEFAULT_LIKELIHOOD_DOF = 4.0
+DEFAULT_N_PREDICTIVE = 2000
+
+
+def resolve_noise_model(calibration: dict) -> NoiseModel:
+    """
+    Pick the noise model from the config. `noise_model` is the current key;
+    configs written before it existed are honoured through the older
+    `calibrate_noise` flag, which selects between the heuristic guess and a
+    single constant calibrated sigma.
+    """
+    name = calibration.get("noise_model")
+    if name is None:
+        name = DEFAULT_NOISE_MODEL if calibration.get("calibrate_noise") else "heuristic"
+    return NoiseModel(name, noise_sigma=calibration.get("noise_sigma"))
+
+
+def build_predictive_idata(sampler, prior, log_likelihood, nburn, observed,
+                           n_predictive=DEFAULT_N_PREDICTIVE):
+    """
+    Evaluate the model on a thinned subset of the post burn-in chain and collect
+    the per-observation log likelihood and the posterior predictive.
+
+    The pointwise log likelihood is what LOO/WAIC need, and it is not recoverable
+    from the posterior alone once the model server is gone -- so it is computed
+    here, while the server is still up. Thinning keeps the cost at
+    `n_predictive` model evaluations and the file at a few MB, instead of
+    carrying a (chain x draw x observation) array for the whole chain.
+    """
+    chain = sampler.chain[:, nburn:, :]
+    n_chains, n_draws, _ = chain.shape
+    if n_draws == 0:
+        print("No post burn-in draws left; skipping predictive inference data")
+        return None
+
+    per_chain = max(1, int(np.ceil(n_predictive / n_chains)))
+    stride = max(1, n_draws // per_chain)
+    thinned = chain[:, ::stride, :][:, :per_chain, :]
+    n_kept = thinned.shape[1]
+
+    n_obs = observed.size
+    log_lik = np.empty((n_chains, n_kept, n_obs))
+    predictive = np.empty((n_chains, n_kept, n_obs))
+
+    print(f"Evaluating {n_chains * n_kept} thinned draws for the predictive inference data")
+    for c in range(n_chains):
+        for d in range(n_kept):
+            parameters = thinned[c, d, :]
+            model_parameters, _ = log_likelihood.split_parameters(parameters)
+            prediction = log_likelihood.predict(model_parameters)
+            pointwise = (None if prediction is None
+                         else log_likelihood.pointwise(parameters, prediction_mean=prediction))
+            predictive[c, d, :] = (np.nan if prediction is None
+                                   else np.asarray(prediction).reshape(-1))
+            log_lik[c, d, :] = -np.inf if pointwise is None else pointwise
+
+    posterior = {name: thinned[:, :, i] for i, name in enumerate(prior.all_parameters)}
+    data_label = "fHb"
+    groups = {
+        "posterior": posterior,
+        "log_likelihood": {data_label: log_lik},
+        "posterior_predictive": {data_label: predictive},
+        "observed_data": {data_label: observed.reshape(-1)},
+    }
+    try:
+        # arviz >= 1.0 takes the groups as one nested mapping ...
+        return az.from_dict(groups)
+    except TypeError:
+        # ... arviz 0.x took them as keyword arguments.
+        return az.from_dict(**groups)
+
+
 def parse_arguments():
     parser = argparse.ArgumentParser(description='MCMC Calibration with `emcee`')
     parser.add_argument('--config', type=str,
@@ -222,9 +404,10 @@ if __name__ == "__main__":
     with open(config_file) as f:
         config = yaml.safe_load(f)
 
+    calibration = config["calibration"]
 
     # Load Data 
-    required_columns = config["calibration"]["data"]
+    required_columns = calibration["data"]
     df = pd.read_csv(
         data_file,
         usecols = required_columns
@@ -240,26 +423,37 @@ if __name__ == "__main__":
         print(f"Error connecting to model: {e}")
         exit(1)
 
+    # Noise model decides which noise parameters are sampled alongside the
+    # model parameters, so it has to be resolved before the priors.
+    noise_model = resolve_noise_model(calibration)
+    print(f"Noise model: {noise_model.name} "
+          f"(free parameters: {noise_model.parameter_names or 'none'})")
+
     # Define Prior Distributions
-    prior = Prior(config["calibration"]["priors"],
-                    parameters=config["calibration"]["parameters"],
-                    noise_parameters=config["calibration"]["noise_parameters"],
-                    calibrate_noise=config["calibration"]["calibrate_noise"])
+    prior = Prior(calibration["priors"],
+                    parameters=calibration["parameters"],
+                    noise_parameters=noise_model.parameter_names)
+
+    likelihood_type = calibration.get("likelihood", "normal")
+    likelihood_dof = float(calibration.get("likelihood_dof", DEFAULT_LIKELIHOOD_DOF))
+    print(f"Likelihood: {likelihood_type}"
+          + (f" (dof = {likelihood_dof:g})" if likelihood_type == "student_t" else ""))
 
     log_prior = LogPrior(prior)
     log_likelihood = LogLikelihood(model, data,
-                                    calibrate_noise=config["calibration"]["calibrate_noise"],
-                                    n_noise_parameters=len(config["calibration"]["noise_parameters"]),
-                                    noise_sigma=config["calibration"].get("noise_sigma", None))
+                                    noise_model=noise_model,
+                                    distribution_type=likelihood_type,
+                                    dof=likelihood_dof)
     log_posterior = LogPosterior(log_prior, log_likelihood)
 
     # Perform MCMC Calibration
+    nburn = calibration["nburn"]
     trace, sampler, _, _ = perform_mcmc(prior, log_posterior.eval,
-                nwalkers=config["calibration"]["nwalkers"],
-                nburn=config["calibration"]["nburn"],
-                nsteps=config["calibration"]["nsteps"],
-                n_workers=config["calibration"].get("n_workers", 1),
-                pool_type=config["calibration"].get("pool_type", "serial"))
+                nwalkers=calibration["nwalkers"],
+                nburn=nburn,
+                nsteps=calibration["nsteps"],
+                n_workers=calibration.get("n_workers", 1),
+                pool_type=calibration.get("pool_type", "serial"))
 
     print(f"MCMC completed. Trace shape: {trace.shape}")
 
@@ -268,5 +462,13 @@ if __name__ == "__main__":
     idata.to_netcdf(f"mcmc_idata.nc")
     print(f"Calibration inference data saved to mcmc_idata.nc")
 
-
-
+    # Pointwise log likelihood and posterior predictive, for cross-experiment
+    # comparison (LOO/WAIC, predictive checks). Written as a separate file so
+    # the diagnostics unit keeps reading the full, untouched chain.
+    predictive_idata = build_predictive_idata(
+        sampler, prior, log_likelihood, nburn, data,
+        n_predictive=int(calibration.get("n_predictive", DEFAULT_N_PREDICTIVE)),
+    )
+    if predictive_idata is not None:
+        predictive_idata.to_netcdf("predictive_idata.nc")
+        print("Predictive inference data saved to predictive_idata.nc")

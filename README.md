@@ -46,11 +46,14 @@ The report below, automatically generated after each calibration study, provides
   **Python** and **Julia**, selectable at runtime via `model.use_julia`.
 - **MCMC calibration** infers the posterior over the parameters with the
   affine-invariant ensemble sampler (Goodman & Weare) as implemented in
-  [`emcee`](https://emcee.readthedocs.io/), using a Gaussian likelihood, an
-  optionally calibrated noise term, and configurable priors. Inference results
-  are exported as NetCDF via [ArviZ](https://python.arviz.org/).
+  [`emcee`](https://emcee.readthedocs.io/), with a configurable likelihood
+  (Gaussian or Student's t), a configurable observation-noise model (a fixed
+  guess, or a scale inferred from the data that is constant, proportional or
+  affine in the predicted hemolysis index), and configurable priors. Inference
+  results are exported as NetCDF via [ArviZ](https://python.arviz.org/).
 - **Report** compiles the calibration results (including the sampler traces) into
-  a generated report; **diagnostics** compute convergence statistics.
+  a generated report; **diagnostics** compute convergence statistics;
+  **comparison** reduces a whole sweep to one set of tables and figures.
 
 ### Data
 
@@ -97,17 +100,35 @@ The report below, automatically generated after each calibration study, provides
    ```
    nextflow run experiments.nf --config_file experiments.yml
    ```
-   Every combination of the `sweep` dimensions (species, model, prior
-   configuration, ...) produces one calibration, sharing the common calibration
-   and model-server settings. Nextflow limits concurrency to the available
-   resources and skips runs that have already completed on a rerun (`-resume`).
+   Every combination of the `sweep` dimensions produces one calibration, sharing
+   the common calibration and model-server settings. Nextflow limits concurrency
+   to the available resources and skips runs that have already completed on a
+   rerun (`-resume`). After the last calibration finishes, one comparison over
+   the whole sweep is written to `comparison/` inside the sweep directory.
 
-   Available options:
-   - **Species:** `human`, `bovine`, `ovine`, `porcine`
-   - **Models:** `IH_powerLaw_stressBased`, `IH_powerLaw_strainBased`,
-     `IH_poreFormation_stressBased`, `IH_poreFormation_strainBased`
+   Sweep dimensions:
 
-   More options for the orchestrated version are on the way.
+   | Dimension | Levels | What it varies |
+   | --- | --- | --- |
+   | `species` | `human`, `bovine`, `ovine`, `porcine` | which data set is calibrated against |
+   | `models` | `IH_powerLaw_stressBased`, `IH_powerLaw_strainBased`, `IH_poreFormation_stressBased`, `IH_poreFormation_strainBased` | the hemolysis model |
+   | `prior_configuration` | any key of `prior_configurations` | the prior family per parameter (e.g. vague uniform vs. informative truncated Gaussian) |
+   | `likelihood` | `normal`, `student_t` | the observation distribution; Student's t has heavier tails, its degrees of freedom set by `calibration.likelihood_dof` |
+   | `noise_model` | `heuristic`, `uniform`, `linear`, `affine` | how the observation noise scale is obtained |
+   | `data_mode` | `raw`, `averaged` | whether measurement repetitions stay separate or are collapsed to their group mean |
+
+   The noise scale of observation *i* is `sigma_i = sigma + sigma_rel * IH_i`,
+   with only the terms of the chosen model active:
+
+   | `noise_model` | Free parameters | Scale |
+   | --- | --- | --- |
+   | `heuristic` | none | fixed `calibration.noise_sigma` |
+   | `uniform` | `sigma` | constant, independent of IH |
+   | `linear` | `sigma_rel` | proportional to IH |
+   | `affine` | `sigma`, `sigma_rel` | a floor plus an IH-proportional part |
+
+   Calibrated noise parameters are sampled alongside the model parameters, so
+   they need a prior in `prior_library` and in the selected prior configuration.
 
 3. **Execution profiles** select the container engine with `-profile`:
    - `-profile local` (**default** if omitted): Docker, for a local workstation.
@@ -166,10 +187,34 @@ Main components:
 | `model_julia/` | **Julia** forward model (Docker / Apptainer) |
 | `mcmc/` | MCMC calibration client (`emcee`) |
 | `report/`, `diagnostics/` | Generated report and convergence diagnostics |
+| `comparison/` | Cross-experiment comparison over a finished sweep |
 
 Supporting units: `pull_data/` (fetch experimental data), `preprocessing/`
 (convert raw data to CSV), `experiments/` (generate the sweep), `deterministic_calibration/`
 (literature reference coefficients).
+
+### Comparing a finished sweep
+
+`comparison/` reduces a whole sweep to the artefacts that answer "what did the
+modeling choices actually change?" — a per-run summary table, an ELPD ranking, a
+sensitivity table, and three figures. It runs automatically at the end of
+`experiments.nf`, and standalone on any directory of bundles:
+
+```
+python comparison/compare_experiments.py \
+    --sweep-dir outputs/experiments/<run> --output-dir comparison
+```
+
+Each calibration also writes `predictive_idata.nc` next to `mcmc_idata.nc`: the
+pointwise log likelihood and the posterior predictive on a thinned set of post
+burn-in draws. That is what LOO/WAIC and the predictive checks need, and it can
+only be produced while the model server is still up.
+
+The ELPD ranking is stratified by `data_mode`, because leave-one-out compares
+models by the density they assign to *the same* observations — the raw and
+averaged data sets are different observation sets, so their ELPDs are not on a
+common scale. Prior, likelihood and noise model leave the observations untouched
+and are therefore directly comparable.
 
 
 

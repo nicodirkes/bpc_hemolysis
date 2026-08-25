@@ -2,9 +2,11 @@
 """
 Generate experiment parameter files from experiments.yml.
 
-Produces one experiment_<hash>.yml per combination of sweep dimensions
-(species x models x prior_configuration x calibrate_noise x use_julia),
-in the same format as the single-run params files.
+Produces one experiment_<hash>.yml per combination of the sweep dimensions, in
+the same format as the single-run params files. The sweep dimensions are read
+from the `sweep` block, so adding a dimension there is enough to widen the
+study -- each dimension name must appear in SWEEP_DIMENSIONS below, which fixes
+the order the combinations are enumerated (and hashed) in.
 """
 
 import yaml
@@ -14,20 +16,48 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
+# Sweep dimensions in enumeration order, mapped to the sweep-block key that
+# lists their levels. Order is part of the experiment hash, so appending new
+# dimensions at the end keeps existing hashes (and therefore resumed runs) stable.
+SWEEP_DIMENSIONS = [
+    ("species",            "species"),
+    ("model",              "models"),
+    ("prior_configuration", "prior_configuration"),
+    ("noise_model",        "noise_model"),
+    ("likelihood",         "likelihood"),
+    ("data_mode",          "data_mode"),
+]
 
-def generate_hash(species: str, model_name: str, prior_config_name: str,
-                  calibrate_noise: bool) -> str:
-    key = f"species={species}|model={model_name}|prior_config={prior_config_name}|calibrate_noise={calibrate_noise}"
+# Free parameters of each noise model, mirroring NoiseModel.PARAMETERS in
+# mcmc/calibrate_emcee.py: sigma_i = sigma + sigma_rel * IH_i, with only the
+# listed terms active. The heuristic model samples nothing and uses the fixed
+# `noise_sigma` guess instead.
+NOISE_PARAMETERS = {
+    "heuristic": [],
+    "uniform":   ["sigma"],
+    "linear":    ["sigma_rel"],
+    "affine":    ["sigma", "sigma_rel"],
+}
+
+# Levels assumed when a sweep block leaves a dimension out, so that a config
+# written against the earlier four-dimension sweep still generates the same runs.
+DIMENSION_DEFAULTS = {
+    "noise_model":  ["uniform"],
+    "likelihood":   ["normal"],
+    "data_mode":    ["raw"],
+}
+
+
+def generate_hash(combination: Dict[str, Any]) -> str:
+    key = "|".join(f"{name}={combination[name]}" for name, _ in SWEEP_DIMENSIONS)
     return hashlib.sha256(key.encode()).hexdigest()[:8]
 
 
 def build_priors(parameters: List[str], noise_parameters: List[str],
-                 calibrate_noise: bool, prior_config_name: str,
+                 prior_config_name: str,
                  prior_configurations: Dict, prior_library: Dict) -> List[Dict]:
     prior_config = prior_configurations[prior_config_name]
-    params_to_include = list(parameters)
-    if calibrate_noise:
-        params_to_include += list(noise_parameters)
+    params_to_include = list(parameters) + list(noise_parameters)
 
     priors = []
     for param_name in params_to_include:
@@ -51,27 +81,38 @@ def build_priors(parameters: List[str], noise_parameters: List[str],
     return priors
 
 
-def build_experiment(species: str, model_name: str, prior_config_name: str,
-                     calibrate_noise: bool,
-                     config: Dict) -> Dict:
+def build_experiment(combination: Dict[str, Any], config: Dict) -> Dict:
+    model_name = combination["model"]
+    noise_model = combination["noise_model"]
+
     model_def = config['model_definitions'][model_name]
     cal = config['calibration']
     model_server = config.get('model_server', {})
     parameters = model_def['parameters']
-    noise_parameters = cal['noise_parameters']
+
+    if noise_model not in NOISE_PARAMETERS:
+        print(f"Error: unknown noise model '{noise_model}'. "
+              f"Choose from: {list(NOISE_PARAMETERS)}", file=sys.stderr)
+        sys.exit(1)
+    noise_parameters = NOISE_PARAMETERS[noise_model]
 
     priors = build_priors(
-        parameters, noise_parameters, calibrate_noise,
-        prior_config_name, config['prior_configurations'], config['prior_library']
+        parameters, noise_parameters, combination["prior_configuration"],
+        config['prior_configurations'], config['prior_library']
     )
 
     return {
-        'species': species,
+        'species': combination["species"],
         'model': {
             'name': model_name,
             'control_variables': list(model_def['control_variables']),
             'use_julia': model_def.get('use_julia', False),
             'n_workers': model_server.get('n_workers', 1),
+        },
+        'dataset': {
+            # raw keeps every repetition as its own observation; averaged
+            # collapses the repetitions of each control-variable set to their mean.
+            'mode': combination["data_mode"],
         },
         'calibration': {
             'nwalkers': cal['nwalkers'],
@@ -80,14 +121,34 @@ def build_experiment(species: str, model_name: str, prior_config_name: str,
             'n_workers': cal.get('n_workers', 1),
             'pool_type': cal.get('pool_type', 'serial'),
             'parameters': list(parameters),
+            'noise_model': noise_model,
             'noise_parameters': list(noise_parameters),
-            'calibrate_noise': calibrate_noise,
+            # Retained for readers that predate `noise_model` (e.g. the report's
+            # run-configuration table): true whenever the noise is inferred
+            # rather than guessed.
+            'calibrate_noise': bool(noise_parameters),
             'noise_sigma': cal['noise_sigma'],
             'data': list(cal['data']),
-            'likelihood': cal['likelihood'],
+            'likelihood': combination["likelihood"],
+            'likelihood_dof': cal.get('likelihood_dof', 4.0),
+            'n_predictive': cal.get('n_predictive', 2000),
             'priors': priors,
         }
     }
+
+
+def sweep_levels(sweep: Dict) -> Dict[str, List]:
+    levels = {}
+    for name, sweep_key in SWEEP_DIMENSIONS:
+        if sweep_key in sweep:
+            levels[name] = list(sweep[sweep_key])
+        elif name in DIMENSION_DEFAULTS:
+            levels[name] = list(DIMENSION_DEFAULTS[name])
+        else:
+            print(f"Error: sweep dimension '{sweep_key}' is missing from the sweep block",
+                  file=sys.stderr)
+            sys.exit(1)
+    return levels
 
 
 def main():
@@ -105,28 +166,25 @@ def main():
     with open(experiments_file) as f:
         config = yaml.safe_load(f)
 
-    sweep = config['sweep']
-    dim_values = [
-        sweep['species'],
-        sweep['models'],
-        sweep['prior_configuration'],
-        sweep['calibrate_noise'],
-    ]
+    levels = sweep_levels(config['sweep'])
+    names = [name for name, _ in SWEEP_DIMENSIONS]
 
     if output_dir != Path("."):
         output_dir.mkdir(parents=True, exist_ok=True)
 
     count = 0
-    for species, model_name, prior_config_name, calibrate_noise in itertools.product(*dim_values):
-        params = build_experiment(species, model_name, prior_config_name, calibrate_noise, config)
-        hash_val = generate_hash(species, model_name, prior_config_name, calibrate_noise)
+    for values in itertools.product(*(levels[name] for name in names)):
+        combination = dict(zip(names, values))
+        params = build_experiment(combination, config)
+        hash_val = generate_hash(combination)
         params['experiment_hash'] = hash_val
 
         output_file = output_dir / f"experiment_{hash_val}.yml"
         with open(output_file, 'w') as f:
             yaml.dump(params, f, default_flow_style=False, sort_keys=False)
 
-        print(f"Created {output_file}", file=sys.stderr)
+        print(f"Created {output_file}  ({', '.join(f'{k}={v}' for k, v in combination.items())})",
+              file=sys.stderr)
         count += 1
 
     print(f"Generated {count} experiment files in {output_dir}", file=sys.stderr)

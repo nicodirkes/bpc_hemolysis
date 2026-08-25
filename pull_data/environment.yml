@@ -2,4 +2,6 @@ name: stage_data
 channels:
   - conda-forge
 dependencies:
-  - coscine
+  # 0.12.1 renamed CoscineClient to ApiClient and fixed project listing for
+  # projects with no creation date; the pull script accepts either name.
+  - coscine>=0.12.2

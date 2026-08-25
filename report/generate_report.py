@@ -30,6 +30,16 @@ PAGE_MARGIN_MM = 15
 FONT = "Helvetica"
 
 
+def _fmt(value) -> str:
+    """Compact number for table cells. A missing bound is an open one."""
+    if value is None:
+        return "inf"
+    try:
+        return f"{float(value):g}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Generate a PDF report for an MCMC calibration run.")
     parser.add_argument("--bundle-dir", type=Path, required=True,
@@ -42,6 +52,52 @@ def parse_args():
 def parse_params(params_path: Path) -> dict:
     with open(params_path) as f:
         return yaml.safe_load(f)
+
+
+# Human-readable names for the noise models of mcmc/calibrate_emcee.py.
+NOISE_MODEL_LABELS = {
+    "heuristic": "Heuristic (fixed guess)",
+    "uniform":   "Calibrated, constant in IH",
+    "linear":    "Calibrated, proportional to IH",
+    "affine":    "Calibrated, affine in IH",
+}
+
+LIKELIHOOD_LABELS = {
+    "normal":    "Gaussian",
+    "student_t": "Student's t",
+}
+
+DATA_MODE_LABELS = {
+    "raw":      "Raw (repetitions kept)",
+    "averaged": "Averaged per control-variable set",
+}
+
+PRIOR_TYPE_LABELS = {
+    "uniform":          "Uniform",
+    "normal":           "Gaussian",
+    "truncated_normal": "Truncated Gaussian",
+}
+
+
+def noise_model_name(cal: dict) -> str:
+    """Noise model of a run. Configs predating the `noise_model` key are read
+    through `calibrate_noise`, which distinguished only guess vs. constant."""
+    return cal.get("noise_model") or ("uniform" if cal.get("calibrate_noise") else "heuristic")
+
+
+def describe_setup(cfg: dict) -> list:
+    """The run's position in the sweep, as short labels."""
+    cal = cfg["calibration"]
+    prior_types = {p["distribution"]["type"] for p in cal["priors"]}
+    prior_label = (PRIOR_TYPE_LABELS.get(next(iter(prior_types)), next(iter(prior_types)))
+                   if len(prior_types) == 1 else "Mixed")
+    data_mode = cfg.get("dataset", {}).get("mode", "raw")
+    return [
+        f"{prior_label} priors",
+        LIKELIHOOD_LABELS.get(cal.get("likelihood", "normal"), cal.get("likelihood", "normal")) + " likelihood",
+        NOISE_MODEL_LABELS.get(noise_model_name(cal), noise_model_name(cal)),
+        DATA_MODE_LABELS.get(data_mode, data_mode),
+    ]
 
 
 # Shared quality rank, worst to best -- lets R-hat and ESS (which use different
@@ -192,6 +248,12 @@ def add_hero(pdf: MCMCReport, cfg: dict, diag_csv_path: Path, generated_at: str,
     pdf.set_text_color(*INK_SECONDARY)
     pdf.cell(0, 7, f"{cfg['species'].capitalize()} - {cfg['model']['name']}", new_x="LMARGIN", new_y="NEXT")
 
+    # The sweep coordinates of this run, so a report picked out of a stack of
+    # them identifies its own inferential setup without opening params.yml.
+    pdf.set_font(FONT, "", 10)
+    pdf.set_text_color(*INK_MUTED)
+    pdf.cell(0, 6, " | ".join(describe_setup(cfg)), new_x="LMARGIN", new_y="NEXT")
+
     pdf.set_font(FONT, "", 9)
     pdf.set_text_color(*INK_MUTED)
     pdf.cell(0, 6, f"Generated {generated_at} - Session {session_id}", new_x="LMARGIN", new_y="NEXT")
@@ -288,15 +350,28 @@ def add_run_info(pdf: MCMCReport, cfg: dict, diag_dir: Path):
     cal = cfg["calibration"]
     model = cfg["model"]
 
+    likelihood = cal.get("likelihood", "normal")
+    likelihood_text = LIKELIHOOD_LABELS.get(likelihood, likelihood)
+    if likelihood == "student_t":
+        likelihood_text += f" (dof = {cal.get('likelihood_dof', 4.0):g})"
+
+    noise_model = noise_model_name(cal)
+    noise_text = NOISE_MODEL_LABELS.get(noise_model, noise_model)
+    if noise_model == "heuristic":
+        noise_text += f", sigma = {cal['noise_sigma']:g}"
+
+    data_mode = cfg.get("dataset", {}).get("mode", "raw")
+
     config_rows = [
         ("Species",           cfg["species"]),
         ("Model",             model["name"]),
         ("Control variables", ", ".join(model["control_variables"])),
-        ("Likelihood",        cal["likelihood"]),
+        ("Data",              DATA_MODE_LABELS.get(data_mode, data_mode)),
+        ("Likelihood",        likelihood_text),
+        ("Noise model",       noise_text),
         ("MCMC walkers",      str(cal["nwalkers"])),
         ("Burn-in steps",     str(cal["nburn"])),
         ("Production steps",  str(cal["nsteps"] - cal["nburn"])),
-        ("Calibrate noise",   "Yes" if cal.get("calibrate_noise") else "No"),
     ]
     label_w = 55
     row_h = 6.5
@@ -310,21 +385,22 @@ def add_run_info(pdf: MCMCReport, cfg: dict, diag_dir: Path):
     pdf.ln(5)
 
     pdf.subsection_title("Priors")
-    headers = ["Parameter", "Distribution", "Bound / Location", "Bound / Scale"]
-    col_widths = [45, 45, 45, 45]
+    headers = ["Parameter", "Distribution", "Centre / Scale", "Support"]
+    col_widths = [35, 50, 50, 45]
     rows = []
     for prior in cal["priors"]:
         dist = prior["distribution"]
         attr = dist["attribute"]
-        if dist["type"] == "uniform":
-            b1, b2 = str(attr["lower_bound"]), str(attr["upper_bound"])
-        else:
-            b1, b2 = str(attr.get("location", "")), str(attr.get("scale", ""))
+        lower = attr.get("lower_bound")
+        upper = attr.get("upper_bound")
+        support = f"[{_fmt(lower)}, {_fmt(upper)}]" if lower is not None or upper is not None else "unbounded"
+        centre = ("-" if dist["type"] == "uniform"
+                  else f"{_fmt(attr.get('loc'))} +/- {_fmt(attr.get('scale'))}")
         rows.append([
-            (prior["name"],          "L", None, True),
-            (dist["type"].capitalize(), "L", None, False),
-            (b1, "R", None, False),
-            (b2, "R", None, False),
+            (prior["name"], "L", None, True),
+            (PRIOR_TYPE_LABELS.get(dist["type"], dist["type"].capitalize()), "L", None, False),
+            (centre, "R", None, False),
+            (support, "R", None, False),
         ])
     draw_hairline_table(pdf, headers, col_widths, rows)
 

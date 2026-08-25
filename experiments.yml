@@ -1,16 +1,37 @@
 # Prior attribute values per parameter per distribution type.
 # Add new types alongside existing ones to make them available in configurations.
+#
+# The `truncated_normal` entries for the model parameters are centred on the
+# deterministic literature fit for the human stress-based power law
+# (deterministic_calibration/stress-based_power_human_DING.json) with a scale of
+# roughly 10% of the corresponding uniform range, and truncated to that same
+# range. They are the informative counterpart to the vague uniform priors.
 prior_library:
   A:
     uniform:
+      lower_bound: 1.0e-7
+      upper_bound: 20.0
+    truncated_normal:
+      loc: 17.18
+      scale: 2.0
       lower_bound: 1.0e-7
       upper_bound: 20.0
   alpha:
     uniform:
       lower_bound: 0.5
       upper_bound: 3.0
+    truncated_normal:
+      loc: 2.064
+      scale: 0.25
+      lower_bound: 0.5
+      upper_bound: 3.0
   beta:
     uniform:
+      lower_bound: 0.01
+      upper_bound: 1.0
+    truncated_normal:
+      loc: 0.278
+      scale: 0.1
       lower_bound: 0.01
       upper_bound: 1.0
   h:
@@ -21,10 +42,28 @@ prior_library:
     uniform:
       lower_bound: 1.0e-7
       upper_bound: 3.0
+  # Constant term of the noise scale, in the units of the measurements (IH in %).
   sigma:
     uniform:
       lower_bound: 1.0e-9
       upper_bound: 0.5
+    truncated_normal:
+      loc: 0.05
+      scale: 0.05
+      lower_bound: 1.0e-9
+      upper_bound: 0.5
+  # Coefficient of the IH-proportional term of the noise scale (dimensionless).
+  # The upper bound covers the largest per-group coefficient of variation seen
+  # in the Ding data (~1.4).
+  sigma_rel:
+    uniform:
+      lower_bound: 1.0e-9
+      upper_bound: 2.0
+    truncated_normal:
+      loc: 0.25
+      scale: 0.25
+      lower_bound: 1.0e-9
+      upper_bound: 2.0
 
 # Named prior configurations — each maps parameter names to a distribution type.
 # The type must exist in prior_library for each relevant parameter.
@@ -38,14 +77,22 @@ prior_configurations:
     h: uniform
     k: uniform
     sigma: uniform
-  
+    sigma_rel: uniform
+  # Informative Gaussians centred on the literature fit, truncated to the same
+  # support as `uniform_all` so every draw stays physically admissible.
+  gaussian_informative:
+    A: truncated_normal
+    alpha: truncated_normal
+    beta: truncated_normal
+    sigma: truncated_normal
+    sigma_rel: truncated_normal
 
 # Model definitions: parameters and control variables per model
 model_definitions:
   IH_powerLaw_stressBased:
     parameters: [A, alpha, beta]
     control_variables: [shear_stress, exposure_time]
-    use_julia: true
+    use_julia: false
   IH_powerLaw_strainBased:
     parameters: [A, alpha, beta]
     control_variables: [shear_stress, exposure_time]
@@ -61,33 +108,47 @@ model_definitions:
 
 # Shared model server settings (applied to all experiments)
 model_server:
-  n_workers: 4 # supported only by python
+  n_workers: 1 # supported only by python
 
 # Shared calibration settings (applied to all experiments)
 calibration:
-  nwalkers: 50
-  nburn: 250
-  nsteps: 500
-  n_workers: 4
-  pool_type: thread # serial | thread | process
-  noise_parameters: [sigma]
+  nwalkers: 32
+  nburn: 200
+  nsteps: 800
+  n_workers: 1
+  pool_type: serial # serial | thread | process
+  # Fixed scale of the `heuristic` noise model — the guess the calibrated noise
+  # models are compared against.
   noise_sigma: 0.05
+  # Degrees of freedom of the Student's t likelihood. Small values give heavy
+  # tails (outlier-tolerant); dof -> inf recovers the normal likelihood.
+  likelihood_dof: 4.0
+  # Post burn-in draws (thinned) kept for the pointwise log likelihood and the
+  # posterior predictive, which feed the cross-experiment comparison.
+  n_predictive: 2000
   data: [fHb]
-  likelihood: normal
 
 # Sweep dimensions — cartesian product of all lists produces one experiment per combination
 sweep:
   species:
     - human
-    - ovine
-    - bovine
-    - porcine
   models:
     - IH_powerLaw_stressBased
-    - IH_powerLaw_strainBased
-    - IH_poreFormation_stressBased
-    - IH_poreFormation_strainBased
   prior_configuration:
     - uniform_all
-  calibrate_noise:
-    - true
+    - gaussian_informative
+  # heuristic: fixed noise_sigma. uniform/linear/affine: noise inferred, with
+  # sigma_i = sigma, sigma_rel*IH_i, and sigma + sigma_rel*IH_i respectively.
+  noise_model:
+    - heuristic
+    - uniform
+    - linear
+    - affine
+  likelihood:
+    - normal
+    - student_t
+  # raw: every repetition is its own observation. averaged: repetitions of each
+  # set of control variables collapsed to their mean.
+  data_mode:
+    - raw
+    - averaged

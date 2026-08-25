@@ -61,6 +61,10 @@ workflow bpc_hemolysis {
         file("$moduleDir/preprocessing/preprocessing.py"),
         "data_ding_",
         workflow_meta.map { row -> row[1].species },
+        // raw keeps the measurement repetitions separate, averaged collapses
+        // them per set of control variables. Configs without a `dataset` block
+        // predate the choice and keep the original behaviour.
+        workflow_meta.map { row -> row[1].dataset?.mode ?: 'raw' },
         PULL_DATA_COSCINE.out,
         workflow_meta.map { row -> row[0] }
     )
@@ -126,15 +130,17 @@ workflow bpc_hemolysis {
     // Join workflow_meta with all keyed outputs — guaranteed per-experiment pairing into BUNDLE_OUTPUTS
     bundle_inputs = workflow_meta
         .join(MCMC_CALIBRATION.out.mcmc_idata)
+        .join(MCMC_CALIBRATION.out.predictive_idata)
         .join(RUN_DIAGNOSTICS.out)
-    // bundle_inputs: [key, cfg, bundle_name, params_yaml, mcmc_idata, diagnostics]
+    // bundle_inputs: [key, cfg, bundle_name, params_yaml, mcmc_idata, predictive_idata, diagnostics]
 
     BUNDLE_OUTPUTS(
         output_base_dir,
         bundle_inputs.map { row -> row[2] },
         bundle_inputs.map { row -> row[3] },
         bundle_inputs.map { row -> row[4] },
-        bundle_inputs.map { row -> row[5] }
+        bundle_inputs.map { row -> row[5] },
+        bundle_inputs.map { row -> row[6] }
     )
 
     GENERATE_REPORT(
@@ -169,7 +175,8 @@ process PULL_DATA_COSCINE {
         # Read access token and setup client
         with open("$token_file", "rt") as fp:
 	        token = fp.read()
-        client = coscine.CoscineClient(token)
+        Client = getattr(coscine, "ApiClient", None) or coscine.CoscineClient
+        client = Client(token)
 
         # Download the data
         resource = client.project("$project_name").resource("$resource_name")
@@ -188,6 +195,7 @@ process PREPROCESS_DATA{
         file script
         val prefix
         val species
+        val mode
         path input
         val key
 
@@ -197,7 +205,7 @@ process PREPROCESS_DATA{
 
     script:
     """
-    python3 preprocessing.py $species --prefix $prefix --indir $input
+    python3 preprocessing.py $species --prefix $prefix --indir $input --mode $mode
     """
 }
 
@@ -338,7 +346,8 @@ process MCMC_CALIBRATION {
     tuple val(key), val(params_yaml), path(data), path(um_highway), val(n_workers)
 
     output:
-    tuple val(key), path("mcmc_idata.nc"),   emit: mcmc_idata
+    tuple val(key), path("mcmc_idata.nc"),        emit: mcmc_idata
+    tuple val(key), path("predictive_idata.nc"),  emit: predictive_idata
 
     script:
     """
@@ -386,6 +395,7 @@ process BUNDLE_OUTPUTS {
     val bundle_name
     val params_yaml
     path mcmc_idata
+    path predictive_idata
     path mcmc_diagnostics
 
     output:
@@ -400,6 +410,7 @@ process BUNDLE_OUTPUTS {
 
     cp params.yml "${bundle_name}"
     cp ${mcmc_idata} "${bundle_name}/"
+    cp ${predictive_idata} "${bundle_name}/"
     cp -r ${mcmc_diagnostics} "${bundle_name}/"
 
     mkdir -p "${output_base_dir}"

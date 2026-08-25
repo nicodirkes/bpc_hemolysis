@@ -13,6 +13,34 @@ workflow {
     ).flatten()
 
     bpc_hemolysis(experiments, exp_base_dir)
+
+    // One comparison over the whole sweep, once every bundle exists. Kept as a
+    // separate unit rather than folded into the per-run report: it answers a
+    // question no single run can ("what did the modeling choices change?"), and
+    // it can be re-run on a finished sweep without repeating the calibrations.
+    COMPARE_EXPERIMENTS(
+        file("$projectDir/comparison/compare_experiments.py"),
+        bpc_hemolysis.out.bundle.collect(),
+        exp_base_dir
+    )
+}
+
+process COMPARE_EXPERIMENTS {
+    conda "$projectDir/comparison/environment.yml"
+
+    input:
+    path script
+    path bundles, stageAs: 'bundles/*'
+    val output_base_dir
+
+    output:
+    path "comparison"
+
+    script:
+    """
+    python3 ${script} --sweep-dir bundles --output-dir comparison
+    cp -r comparison "${output_base_dir}/"
+    """
 }
 
 process GENERATE_EXPERIMENTS {

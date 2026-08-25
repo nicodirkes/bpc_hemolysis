@@ -1,0 +1,14 @@
+name: comparison
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pyyaml
+  - numpy
+  - pandas
+  - matplotlib
+  - arviz
+  - arviz-stats
+  - xarray
+  - h5py
+  - h5netcdf
