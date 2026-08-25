@@ -137,6 +137,21 @@ def build_experiment(combination: Dict[str, Any], config: Dict) -> Dict:
     }
 
 
+def is_compatible(combination: Dict[str, Any], config: Dict) -> bool:
+    """
+    Whether a combination is worth running at all.
+
+    A model may declare `incompatible_noise_models`. The pore formation models
+    predict exactly zero below the onset of pore opening, and a purely
+    IH-proportional noise scale is zero there, so every draw is rejected: with a
+    fixed relaxation time nothing is samplable at all, and with a free one the
+    prior is silently truncated to the region with no zero predictions. Skipping
+    those combinations keeps failed and misleading runs out of the sweep.
+    """
+    model_def = config['model_definitions'][combination["model"]]
+    return combination["noise_model"] not in model_def.get('incompatible_noise_models', [])
+
+
 def sweep_levels(sweep: Dict) -> Dict[str, List]:
     levels = {}
     for name, sweep_key in SWEEP_DIMENSIONS:
@@ -173,8 +188,14 @@ def main():
         output_dir.mkdir(parents=True, exist_ok=True)
 
     count = 0
+    skipped = 0
     for values in itertools.product(*(levels[name] for name in names)):
         combination = dict(zip(names, values))
+        if not is_compatible(combination, config):
+            print(f"Skipping incompatible combination: "
+                  f"{', '.join(f'{k}={v}' for k, v in combination.items())}", file=sys.stderr)
+            skipped += 1
+            continue
         params = build_experiment(combination, config)
         hash_val = generate_hash(combination)
         params['experiment_hash'] = hash_val
@@ -187,7 +208,8 @@ def main():
               file=sys.stderr)
         count += 1
 
-    print(f"Generated {count} experiment files in {output_dir}", file=sys.stderr)
+    print(f"Generated {count} experiment files in {output_dir}"
+          + (f" ({skipped} incompatible combinations skipped)" if skipped else ""), file=sys.stderr)
 
 
 if __name__ == '__main__':

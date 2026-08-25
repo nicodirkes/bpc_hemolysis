@@ -166,14 +166,23 @@ model_definitions:
     parameters: [h, k]
     control_variables: [shear_stress, exposure_time]
     use_julia: false
+    # Predicts exactly zero below the onset of pore opening, where a purely
+    # IH-proportional noise scale is zero and every draw is rejected.
+    incompatible_noise_models: [linear]
   IH_poreFormation_strainBased_f1:
     parameters: [h, k, f1]
     control_variables: [shear_stress, exposure_time]
     use_julia: false
+    # Predicts exactly zero below the onset of pore opening, where a purely
+    # IH-proportional noise scale is zero and every draw is rejected.
+    incompatible_noise_models: [linear]
   IH_poreFormation_strainBased_tau:
     parameters: [h, k, tau]
     control_variables: [shear_stress, exposure_time]
     use_julia: false
+    # Predicts exactly zero below the onset of pore opening, where a purely
+    # IH-proportional noise scale is zero and every draw is rejected.
+    incompatible_noise_models: [linear]
 
 # Shared model server settings (applied to all experiments)
 model_server:
@@ -181,9 +190,13 @@ model_server:
 
 # Shared calibration settings (applied to all experiments)
 calibration:
-  nwalkers: 32
-  nburn: 200
-  nsteps: 800
+  # Production budget. Measured at ~834 model evaluations per second aggregate
+  # with four concurrent chains on this machine, so the 80-run sweep is ~11 h.
+  # Post burn-in draws (64 x 3500) give effective sample sizes in the low
+  # thousands, well past the 400 that the diagnostics unit calls Excellent.
+  nwalkers: 64
+  nburn: 2500
+  nsteps: 6000
   n_workers: 1
   pool_type: serial # serial | thread | process
   # Fixed scale of the `heuristic` noise model — the guess the calibrated noise
@@ -203,6 +216,8 @@ sweep:
     - human
   models:
     - IH_powerLaw_stressBased
+    - IH_poreFormation_strainBased
+    - IH_poreFormation_strainBased_tau
   prior_configuration:
     - uniform_all
     - gaussian_informative
