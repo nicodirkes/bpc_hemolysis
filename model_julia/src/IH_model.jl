@@ -3,10 +3,12 @@ using QuadGK
 using HypergeometricFunctions
 using SpecialFunctions
 
-# Beyond this value of f1*t, 1 - exp(-f1*t) rounds to exactly 1.0 in double
-# precision and the hypergeometric form of the strain-based integral hits its
-# logarithmic pole. See IH_powerLaw_strainBased_analytical.
-const SATURATION_FT = 30.0
+# Switch-over between the hypergeometric form of the strain-based integral and
+# its saturated asymptote. The two overlap rather than merely meet: the
+# hypergeometric loses accuracy as its argument 1 - exp(-f1*t) approaches its
+# logarithmic pole at 1, while the asymptote is accurate to ~1e-9 by f1*t = 20.
+# See IH_powerLaw_strainBased_analytical.
+const SATURATION_FT = 20.0
 const EULER_GAMMA = 0.5772156649015329
 
 

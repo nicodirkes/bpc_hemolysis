@@ -38,8 +38,18 @@ prior_library:
     uniform:
       lower_bound: 1.0e-7
       upper_bound: 25.0
+    truncated_normal:
+      loc: 13.03
+      scale: 2.5
+      lower_bound: 1.0e-7
+      upper_bound: 25.0
   k:
     uniform:
+      lower_bound: 1.0e-7
+      upper_bound: 3.0
+    truncated_normal:
+      loc: 0.927
+      scale: 0.3
       lower_bound: 1.0e-7
       upper_bound: 3.0
   # Inverse membrane relaxation time f1 = 1/tau of the strain-based RBC model,
@@ -120,6 +130,8 @@ prior_configurations:
     A: truncated_normal
     alpha: truncated_normal
     beta: truncated_normal
+    h: truncated_normal
+    k: truncated_normal
     f1: truncated_normal
     tau: truncated_normal
     sigma: truncated_normal

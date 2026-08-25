@@ -139,6 +139,7 @@ class NoiseModel:
         self.name = name
         self.noise_sigma = noise_sigma
         self.parameter_names = list(self.PARAMETERS[name])
+        self._warned_zero_prediction = False
 
     @property
     def n_parameters(self) -> int:
@@ -167,6 +168,18 @@ class NoiseModel:
             sigma = sigma + values["sigma_rel"] * np.abs(prediction_mean)
 
         if not np.all(sigma > 0.0):
+            # A purely IH-proportional scale collapses to zero wherever the model
+            # predicts exactly zero -- as the pore formation models do below the
+            # onset of pore opening. The draw is then rejected, so the noise model
+            # silently truncates the prior to the region with no zero predictions
+            # instead of fitting it. Say so once: the result would otherwise look
+            # like an ordinary posterior.
+            if "sigma" not in values and np.any(prediction_mean == 0.0) and not self._warned_zero_prediction:
+                print(f"WARNING: the '{self.name}' noise model gives a zero noise scale where the "
+                      "model predicts exactly zero, so those draws are rejected outright. "
+                      "This truncates the prior rather than fitting it -- use 'affine', which "
+                      "keeps a constant floor, for a model that can predict zero.")
+                self._warned_zero_prediction = True
             return None
         return sigma
 

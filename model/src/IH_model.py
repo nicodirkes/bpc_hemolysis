@@ -87,12 +87,15 @@ def integral_poreFormation_analytical(t_exp, G_exp, f=5.0):
 
     return integral
 
-# Beyond this value of f*t the deformation has saturated to within double
-# precision: 1 - exp(-f*t) rounds to exactly 1.0, where the hypergeometric form
-# of the antiderivative has a logarithmic pole and returns inf. The saturated
-# branch below is accurate to ~1e-13 there and, unlike the closed form, tends
+# Switch-over between the hypergeometric form of the antiderivative and its
+# saturated asymptote. The two must overlap, not merely meet: scipy's hyp2f1
+# returns inf from f*t = 30 upwards (its argument 1 - exp(-f*t) has reached 1.0
+# to within its own tolerance, at the function's logarithmic pole), while the
+# asymptote is already accurate to ~1e-9 by f*t = 20 and keeps improving. 20
+# sits in the middle of the band where both are good, so neither branch is ever
+# evaluated where it is unreliable. Past the switch the model also tends
 # smoothly to the stress-based limit I -> t as f -> infinity.
-SATURATION_FT = 30.0
+SATURATION_FT = 20.0
 
 # Euler-Mascheroni constant, for the saturated branch of the integral.
 EULER_GAMMA = 0.5772156649015329
