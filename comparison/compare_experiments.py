@@ -14,6 +14,8 @@ actually change?":
   posterior_forest.png    every run's posterior interval per parameter, ordered
                           and coloured by one sweep dimension
   elpd_comparison.png     predictive performance with standard errors
+  ppc_coverage.png        whether each noise model's predictive intervals hold
+                          the share of measurements they claim
   sensitivity.png         which choice moved which parameter, and by how much
 
 Runs standalone on any directory of bundles:
@@ -79,6 +81,10 @@ LEGEND_STRIP = 0.08
 # quantiles so the numbers in the two places never disagree.
 INNER_QUANTILES = (0.16, 0.84)
 OUTER_QUANTILES = (0.025, 0.975)
+
+# Replicate observations are drawn to check the predictive intervals; a fixed
+# seed keeps the reported coverage reproducible run to run.
+PREDICTIVE_SEED = 0
 
 RHAT_THRESHOLD = 1.01
 PARETO_K_THRESHOLD = 0.7
@@ -154,13 +160,35 @@ def read_bundle(bundle_dir: Path) -> dict:
         record["min_ess"] = float(diag[["ess_bulk", "ess_tail"]].min().min())
         record["converged"] = bool(record["max_rhat"] <= RHAT_THRESHOLD)
 
-    record.update(predictive_scores(bundle_dir / "predictive_idata.nc"))
+    record.update(predictive_scores(bundle_dir / "predictive_idata.nc", cal))
     return record
 
 
-def predictive_scores(predictive_path: Path) -> dict:
+def noise_scale(posterior, mean_prediction, cal: dict) -> np.ndarray:
     """
-    ELPD (leave-one-out) plus two checks the ELPD cannot express on its own:
+    Per-draw, per-observation noise scale sigma = sigma + sigma_rel * |IH|.
+
+    Mirrors NoiseModel in mcmc/calibrate_emcee.py. The scale is not stored with
+    the predictive draws, so it is rebuilt here from the sampled noise
+    parameters -- without it the only available check is on the model response
+    alone, which says nothing about whether the noise model is right.
+    """
+    name = noise_model_name(cal)
+    if name == "heuristic":
+        return np.full_like(mean_prediction, float(cal["noise_sigma"]))
+
+    sigma = np.zeros_like(mean_prediction)
+    if "sigma" in posterior:
+        sigma = sigma + np.asarray(posterior["sigma"].values).reshape(-1)[:, None]
+    if "sigma_rel" in posterior:
+        sigma = sigma + (np.asarray(posterior["sigma_rel"].values).reshape(-1)[:, None]
+                         * np.abs(mean_prediction))
+    return sigma
+
+
+def predictive_scores(predictive_path: Path, cal: dict) -> dict:
+    """
+    ELPD (leave-one-out) plus the checks the ELPD cannot express on its own:
     how far the predictions sit from the data, and whether the predictive
     intervals are honest about their own width.
     """
@@ -194,11 +222,28 @@ def predictive_scores(predictive_path: Path) -> dict:
     mean_prediction = np.nanmean(draws, axis=0)
     scores["rmse"] = float(np.sqrt(np.nanmean((observed - mean_prediction) ** 2)))
 
-    # Calibration of the parameter uncertainty: the share of measurements inside
-    # the central 95% band of the model response. Well below 0.95 means the
-    # posterior is over-confident about the response.
+    # Spread of the model response alone, with no observation noise. This is
+    # NOT a calibration check -- the measurements are not expected to fall
+    # inside it -- it is a measure of how tightly the posterior pins the
+    # response, so a small value means a sharp fit, not an overconfident one.
     lo, hi = np.nanquantile(draws, OUTER_QUANTILES, axis=0)
-    scores["coverage_95"] = float(np.mean((observed >= lo) & (observed <= hi)))
+    scores["response_band_95"] = float(np.mean((observed >= lo) & (observed <= hi)))
+
+    # The actual calibration check: replicate observations drawn from the fitted
+    # likelihood, noise included. A well-specified noise model puts ~95% of the
+    # measurements inside the 95% interval and ~50% inside the 50% one; far
+    # below means over-confident, far above means the noise is inflated.
+    sigma = noise_scale(idata["posterior"], draws, cal)
+    rng = np.random.default_rng(PREDICTIVE_SEED)
+    if cal.get("likelihood", "normal") == "student_t":
+        dof = float(cal.get("likelihood_dof", 4.0))
+        replicates = draws + sigma * rng.standard_t(dof, size=draws.shape)
+    else:
+        replicates = draws + sigma * rng.standard_normal(size=draws.shape)
+
+    for mass, quantiles in ((95, OUTER_QUANTILES), (50, (0.25, 0.75))):
+        lo, hi = np.nanquantile(replicates, quantiles, axis=0)
+        scores[f"ppc_coverage_{mass}"] = float(np.mean((observed >= lo) & (observed <= hi)))
     return scores
 
 
@@ -432,6 +477,48 @@ def plot_sensitivity(sensitivity: pd.DataFrame, output_dir: Path, filename="sens
     _save(fig, output_dir, filename)
 
 
+def plot_coverage(summary: pd.DataFrame, output_dir: Path, filename="ppc_coverage.png"):
+    """
+    Does each noise model's predictive interval contain the share of the
+    measurements it claims? One point per run against its nominal level, so a
+    well-specified noise model sits on the dashed line and a mis-specified one
+    sits below it.
+    """
+    levels = [c for c in ("ppc_coverage_50", "ppc_coverage_95") if c in summary.columns]
+    if not levels:
+        return
+
+    noise_levels = list(dict.fromkeys(summary["noise_model"]))
+    colors = _level_colors(noise_levels)
+    fig, axes = plt.subplots(1, len(levels), figsize=(5.6 * len(levels), 5.0), squeeze=False)
+
+    for ax, column in zip(axes[0], levels):
+        nominal = int(column.rsplit("_", 1)[1]) / 100.0
+        ax.axhline(nominal, color=INK_MUTED, linestyle='--', linewidth=1.2)
+        ax.text(len(noise_levels) - 0.5, nominal, f' nominal {nominal:.0%}', fontsize=8,
+                color=INK_MUTED, ha='right', va='bottom')
+        for i, level in enumerate(noise_levels):
+            vals = summary.loc[summary["noise_model"] == level, column].dropna().values
+            if not len(vals):
+                continue
+            jitter = (np.random.default_rng(0).random(len(vals)) - 0.5) * 0.28
+            ax.plot(i + jitter, vals, marker='o', markersize=5, linestyle='',
+                    color=colors[level], alpha=0.75,
+                    markeredgecolor='white', markeredgewidth=0.7)
+            ax.plot([i - 0.22, i + 0.22], [np.median(vals)] * 2,
+                    color=colors[level], linewidth=2.6, solid_capstyle='butt')
+        ax.set_xticks(range(len(noise_levels)))
+        ax.set_xticklabels(noise_levels)
+        ax.set_ylim(0, 1.05)
+        ax.set_ylabel(f"share of measurements inside the {nominal:.0%} interval")
+        ax.set_xlabel("noise model")
+        ax.grid(axis='x', visible=False)
+
+    fig.suptitle("Are the predictive intervals honest? Coverage against the nominal level",
+                 fontsize=12, color=INK_SECONDARY)
+    _save(fig, output_dir, filename)
+
+
 def _save(fig, output_dir: Path, filename: str, tight=True):
     output_dir.mkdir(parents=True, exist_ok=True)
     if tight:
@@ -494,6 +581,7 @@ def main():
     plot_posterior_forest(summary, parameters, args.color_by, args.output_dir)
     plot_elpd(summary, args.output_dir)
     plot_sensitivity(sensitivity, args.output_dir)
+    plot_coverage(summary, args.output_dir)
 
     # A short console verdict, so a sweep can be triaged without opening anything.
     if "converged" in summary.columns:
