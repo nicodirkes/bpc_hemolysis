@@ -66,21 +66,23 @@ The report below, automatically generated after each calibration study, provides
 - **V. Mithlesh Kumar** | MBD, RWTH Aachen | uncertainty quantification
 - **Alan Correa** | MBD, RWTH Aachen | research software engineering
 
+## Prerequisites
+
+- **[Conda](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html) / [Mamba](https://github.com/conda-forge/miniforge#install) / [Micromamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html#automatic-install)**: a package manager for the unit environments and for installing Nextflow.
+- **A container runtime** for the **Julia** forward model:
+  [Docker](https://docs.docker.com/get-docker/) locally, or
+  [Apptainer](https://apptainer.org/docs/admin/latest/installation.html#installing-apptainer)
+  on HPC.
+
+> **Note for Windows users:** Nextflow runs on Windows [only through WSL2](https://docs.seqera.io/nextflow/install). Install the Linux version of your package manager inside [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) (e.g. Ubuntu). See how to [use Docker with WSL 2](https://docs.docker.com/desktop/features/wsl/).
+
 ## Installation
 
-1. **Conda / Mamba / Micromamba**: a package manager for the unit environments
-   ([Conda](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html) /
-   [Mamba](https://github.com/conda-forge/miniforge#install) /
-   [Micromamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html#automatic-install)).
-2. Create and activate the project environment (this also installs Nextflow):
-   ```
-   conda env create -f environment.yml
-   conda activate showmehow
-   ```
-3. A container runtime for the **Julia** forward model:
-   [Docker](https://docs.docker.com/get-docker/) locally, or
-   [Apptainer](https://apptainer.org/docs/admin/latest/installation.html#installing-apptainer)
-   on HPC.
+Create and activate the project environment:
+```
+conda env create -f environment.yml
+conda activate showmehow
+```
 
 ## Usage
 
