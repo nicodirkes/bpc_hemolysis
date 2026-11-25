@@ -120,6 +120,9 @@ conda activate showmehow
    nextflow run main.nf --config_file params.yml -profile cluster
    ```
 
+   `-profile` only selects the container engine. Which environments the units use is
+   set separately (see below).
+
    **CPU budget** — `--max_cpus N` caps the cores used for concurrency. It is a
    *total* budget shared across concurrently running experiments; each experiment
    consumes `model.n_workers + calibration.n_workers` cores. When unset, all
@@ -136,23 +139,18 @@ conda activate showmehow
    | Mode | Flag | What a unit uses |
    | --- | --- | --- |
    | Locked (default) | — | committed `<unit>/lockfile/conda-<platform>.lock` |
-   | Unlocked | `--useLockFiles false` | solve `<unit>/environment.yml` at runtime |
    | Containerized | `--containerized` | the unit's image from GHCR, no conda |
 
    ```
    nextflow run main.nf --config_file params.yml                 # locked
    nextflow run main.nf --config_file params.yml --containerized # images from GHCR
+   nextflow run main.nf --config_file params.yml -profile cluster --containerized # images via Apptainer, no conda needed
    ```
    - `--lockPlatform` is **auto-detected** from the host
      (`linux-64` | `linux-aarch64` | `osx-64` | `osx-arm64` | `win-64`); override if needed.
    - A unit with no lock for the platform (e.g. `model`/`mcmc`, whose pip-only
      `umbridge` can't survive an explicit lock) falls back to its `environment.yml`.
    - `--condaEngine` is `conda` (default), `mamba`, or `micromamba`.
-
-   Editing a `<unit>/environment.yml` triggers one CI pipeline (`conda-recipes.yml`):
-   it re-locks conda-only units (or adds a micromamba `Dockerfile` to units that
-   can't be locked), commits, then builds & pushes each unit's image to GHCR
-   (`:latest` + `:<sha>`) **from the updated locks** for `--containerized`.
 
 ## Repository structure
 
