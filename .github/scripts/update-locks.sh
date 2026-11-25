@@ -16,7 +16,7 @@ for env in $(find . -mindepth 2 -maxdepth 2 -name environment.yml | sort); do
   if grep -q 'pip:' "$env"; then
     echo "[$m] pip deps -> Dockerfile"
     rm -rf "$m/lockfile"
-    [ -f "$m/Dockerfile" ] || cp "$template" "$m/Dockerfile"
+    cp "$template" "$m/Dockerfile"
   else
     echo "[$m] conda-only -> locks"
     mkdir -p "$m/lockfile"
