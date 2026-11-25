@@ -2,4 +2,5 @@ name: stage_data
 channels:
   - conda-forge
 dependencies:
+  - python=3.12
   - coscine
