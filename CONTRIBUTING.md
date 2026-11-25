@@ -24,39 +24,22 @@ Thanks for your interest in contributing to this computational study.
    ```
 5. Open a pull request describing what you changed and why.
 
-## Releasing a container image
+## Container images
 
-Containerized units (e.g. `model_julia/`) publish their image to GHCR from a git
-tag. Each unit versions independently via a **prefixed** tag so modules don't
-share a version line.
+Every unit's image is published to GHCR automatically. You never build or tag
+one by hand.
 
-Naming: `<module>-v<MAJOR>.<MINOR>.<PATCH>` — e.g. `model-julia-v0.1.0`. The
-workflow strips the prefix, so the published image tag is the bare semver
-(`ghcr.io/<owner>/<repo>/model_julia:0.1.0`).
+To change a unit's environment:
 
-Pick one of the following based on your change:
-- **PATCH** — rebuild with no behavior change (e.g. refresh the base image).
-- **MINOR** — add or update dependencies without changing the model's results.
-- **MAJOR** — anything that changes the model's numerics (e.g. bumping the base
-  image's major version, or changing a pinned package that affects output).
+1. Edit its `environment.yml` (Julia units: `Project.toml`).
+2. Open a pull request, and after merge the **Lock and build** workflow:
+   - updates the lock files, `Dockerfile` or `Manifest.toml`, and commits them
+   - builds and pushes the image (`:latest` and `:<sha>`)
 
-To cut a release:
+Those generated files are overwritten on every run, so don't edit them by hand.
 
-1. Edit the module (`Dockerfile`, `Project.toml`, `Manifest.toml`, ...). Opening
-   a PR builds the image for **all architectures without pushing**, so a broken
-   build is caught in review.
-2. After merge, pick the version and tag it:
-   ```
-   git tag model-julia-v0.1.0
-   git push origin model-julia-v0.1.0
-   ```
-   This builds and pushes the multi-arch image to GHCR.
-3. Pin the new tag where the image is consumed — for the Julia model, the
-   `container` directive in `main.nf` (`SERVE_MODEL_JL`).
-
-A new containerized module gets its own copy of the workflow
-(`.github/workflows/build-<module>-image.yml`), scoped to its directory, with its
-own `<module>-v*` tag prefix.
+For a Julia unit, the Julia version comes from `[compat] julia` in its
+`Project.toml`.
 
 > First publish only: the GHCR package is created private. Make it public once
 > (package settings → change visibility) so `docker pull` / `apptainer pull

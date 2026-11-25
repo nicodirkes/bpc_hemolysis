@@ -1,4 +1,4 @@
-name: Conda recipes (locks + images)
+name: Lock and build
 
 # One pipeline so a module's image is always built from its latest lock:
 #   1. update-recipes: regenerate per-platform locks (conda-only modules) or a
@@ -7,16 +7,19 @@ name: Conda recipes (locks + images)
 #      image to GHCR (:latest + :sha) for --containerized runs.
 # Chained in one run because a GITHUB_TOKEN push can't trigger a second workflow.
 # New modules (any dir with environment.yml) are picked up automatically;
-# model_julia has its own image workflow.
+# Julia modules (dir with Project.toml) get their Dockerfile + Manifest.toml from
+# .github/scripts/update-julia.sh and are built and pushed here too.
 
 on:
   push:
     branches: [main]
     paths:
       - '**/environment.yml'
+      - '**/Project.toml'
+      - '**/Dockerfile'
       - '.github/scripts/update-locks.sh'
       - '.github/templates/**'
-      - '.github/workflows/conda-recipes.yml'
+      - '.github/workflows/lock-and-build.yml'
   workflow_dispatch:
 
 permissions:
@@ -45,11 +48,14 @@ jobs:
         shell: bash -el {0}
         run: bash .github/scripts/update-locks.sh
 
+      - name: Lock Julia modules
+        run: bash .github/scripts/update-julia.sh
+
       - name: Discover modules
         id: discover
         run: |
-          mods=$(find . -mindepth 2 -maxdepth 2 -name environment.yml -printf '%h\n' \
-                 | sed 's|^\./||' | sort | jq -R . | jq -cs .)
+          mods=$(find . -mindepth 2 -maxdepth 2 \( -name environment.yml -o -name Project.toml \) -printf '%h\n' \
+                 | sed 's|^\./||' | sort -u | jq -R . | jq -cs .)
           echo "modules=$mods" >> "$GITHUB_OUTPUT"
 
       - name: Commit and push
@@ -57,7 +63,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A '**/lockfile/*.lock' '**/Dockerfile'
+          git add -A '**/lockfile/*.lock' '**/Dockerfile' '**/Manifest.toml'
           if git diff --staged --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
@@ -68,8 +74,6 @@ jobs:
 
   build-images:
     needs: update-recipes
-    # Rebuild when recipes changed, or on a manual run (e.g. base-image bump).
-    if: ${{ needs.update-recipes.outputs.changed == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

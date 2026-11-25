@@ -271,7 +271,7 @@ process SERVE_MODEL_PY {
 }
 
 process SERVE_MODEL_JL {
-    container 'ghcr.io/nicodirkes/bpc_hemolysis/model_julia:0.1.0'
+    container 'ghcr.io/nicodirkes/bpc_hemolysis/model_julia:latest'
     // Docker needs -p to publish the port; Apptainer shares the host network.
     containerOptions {
         workflow.containerEngine == 'docker'

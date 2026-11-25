@@ -6,3 +6,6 @@ DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
 HypergeometricFunctions = "34004b35-14d8-5ef3-9330-4cdb6864b03a"
 UMBridge = "0ac74fe0-b753-4e62-be71-04a8383fbbef"
 QuadGK = "1fd47b50-473d-5c70-9696-f719f8f3bcdc"
+
+[compat]
+julia = "1.11"
